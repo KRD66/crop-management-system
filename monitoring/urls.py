@@ -14,4 +14,7 @@ urlpatterns = [
     path('reports/', views.reports, name='reports'),
     path('notifications/', views.notifications, name='notifications'),
     path('user-management/', views.user_management, name='user_management'),
+    path('api/analytics/yearly-trends/<int:year>/', views.get_yearly_trends, name='yearly_trends'),
+    path('api/analytics/farm-efficiency/<int:farm_id>/', views.get_farm_efficiency, name='farm_efficiency'),
+
 ]

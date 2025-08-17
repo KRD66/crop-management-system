@@ -1,0 +1,672 @@
+{% extends 'monitoring/base.html' %}
+
+{% block title %}Analytics - HarvestPro{% endblock %}
+
+{% block page_title %}Analytics{% endblock %}
+
+{% block content %}
+<style>
+/* Analytics specific styles */
+.analytics-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+.analytics-metric-card {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.analytics-metric-card.efficiency { border-left: 4px solid #10b981; }
+.analytics-metric-card.performer { border-left: 4px solid #3b82f6; }
+.analytics-metric-card.predicted { border-left: 4px solid #f59e0b; }
+.analytics-metric-card.underperforming { border-left: 4px solid #ef4444; }
+
+.metric-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    margin-bottom: 10px;
+}
+
+.metric-title {
+    color: #6b7280;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.metric-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+}
+
+.efficiency .metric-icon { background: #10b981; color: white; }
+.performer .metric-icon { background: #3b82f6; color: white; }
+.predicted .metric-icon { background: #f59e0b; color: white; }
+.underperforming .metric-icon { background: #ef4444; color: white; }
+
+.metric-main-value {
+    font-size: 2.2rem;
+    font-weight: bold;
+    color: #1f2937;
+    margin-bottom: 5px;
+    line-height: 1;
+}
+
+.metric-subtitle {
+    color: #6b7280;
+    font-size: 0.8rem;
+}
+
+.metric-change {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 8px;
+    font-size: 0.8rem;
+}
+
+.metric-change.positive { color: #10b981; }
+.metric-change.neutral { color: #6b7280; }
+
+/* Chart sections */
+.chart-section {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+.chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.chart-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin: 0;
+}
+
+.chart-subtitle {
+    color: #6b7280;
+    font-size: 0.9rem;
+    margin: 5px 0 0 0;
+}
+
+.year-selector {
+    background: #f8fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 0.9rem;
+    color: #374151;
+}
+
+.chart-wrapper {
+    width: 100%;
+    height: 300px;
+    position: relative;
+}
+
+.weather-chart-wrapper {
+    height: 250px;
+}
+
+/* Two column layout for bottom sections */
+.bottom-sections {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+/* Farm ranking styles */
+.ranking-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px;
+    border-bottom: 1px solid #f3f4f6;
+    transition: background-color 0.2s;
+}
+
+.ranking-item:hover {
+    background-color: #f9fafb;
+}
+
+.ranking-item:last-child {
+    border-bottom: none;
+}
+
+.ranking-left {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    flex: 1;
+}
+
+.ranking-number {
+    background: #f3f4f6;
+    color: #6b7280;
+    font-weight: bold;
+    font-size: 0.9rem;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ranking-number.top {
+    background: #10b981;
+    color: white;
+}
+
+.ranking-info {
+    flex: 1;
+}
+
+.ranking-name {
+    font-weight: 600;
+    color: #1f2937;
+    font-size: 0.95rem;
+}
+
+.ranking-crop {
+    color: #6b7280;
+    font-size: 0.8rem;
+    margin-top: 2px;
+}
+
+.ranking-right {
+    text-align: right;
+}
+
+.ranking-percentage {
+    font-weight: bold;
+    color: #1f2937;
+    font-size: 0.9rem;
+}
+
+.ranking-yield {
+    color: #6b7280;
+    font-size: 0.8rem;
+    margin-top: 2px;
+}
+
+/* Prediction items */
+.prediction-item {
+    padding: 15px;
+    border-bottom: 1px solid #f3f4f6;
+    transition: background-color 0.2s;
+}
+
+.prediction-item:hover {
+    background-color: #f9fafb;
+}
+
+.prediction-item:last-child {
+    border-bottom: none;
+}
+
+.prediction-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.prediction-crop {
+    font-weight: 600;
+    color: #1f2937;
+    font-size: 0.95rem;
+}
+
+.prediction-amount {
+    font-weight: bold;
+    color: #1f2937;
+    font-size: 0.95rem;
+}
+
+.prediction-details {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.prediction-date {
+    color: #6b7280;
+    font-size: 0.8rem;
+}
+
+.prediction-confidence {
+    background: #f0fdf4;
+    color: #16a34a;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.prediction-confidence.medium {
+    background: #fef3c7;
+    color: #d97706;
+}
+
+/* Responsive design */
+@media (max-width: 1024px) {
+    .bottom-sections {
+        grid-template-columns: 1fr;
+    }
+    
+    .chart-wrapper {
+        height: 250px;
+    }
+    
+    .weather-chart-wrapper {
+        height: 200px;
+    }
+}
+
+@media (max-width: 768px) {
+    .analytics-metrics {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 15px;
+    }
+    
+    .analytics-metric-card {
+        padding: 15px;
+    }
+    
+    .metric-main-value {
+        font-size: 1.8rem;
+    }
+    
+    .chart-section {
+        padding: 15px;
+    }
+    
+    .chart-wrapper {
+        height: 200px;
+    }
+    
+    .weather-chart-wrapper {
+        height: 150px;
+    }
+}
+
+@media (max-width: 480px) {
+    .analytics-metrics {
+        grid-template-columns: 1fr;
+    }
+    
+    .metric-main-value {
+        font-size: 1.5rem;
+    }
+    
+    .chart-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .ranking-left {
+        gap: 10px;
+    }
+    
+    .ranking-number {
+        width: 24px;
+        height: 24px;
+        font-size: 0.8rem;
+    }
+}
+</style>
+
+<!-- Key Metrics Cards -->
+<div class="analytics-metrics">
+    <div class="analytics-metric-card efficiency">
+        <div class="metric-header">
+            <span class="metric-title">Avg Efficiency</span>
+            <div class="metric-icon">📊</div>
+        </div>
+        <div class="metric-main-value">{{ avg_efficiency|floatformat:1 }}%</div>
+        <div class="metric-change positive">
+            <i class="fas fa-arrow-up"></i>
+            +2.3% from last season
+        </div>
+    </div>
+    
+    <div class="analytics-metric-card performer">
+        <div class="metric-header">
+            <span class="metric-title">Top Performer</span>
+            <div class="metric-icon">🏆</div>
+        </div>
+        <div class="metric-main-value">{{ top_performer.name }}</div>
+        <div class="metric-subtitle">{{ top_performer.efficiency|floatformat:1 }}% efficiency</div>
+    </div>
+    
+    <div class="analytics-metric-card predicted">
+        <div class="metric-header">
+            <span class="metric-title">Predicted Harvest</span>
+            <div class="metric-icon">📅</div>
+        </div>
+        <div class="metric-main-value">{{ predicted_harvest|floatformat:0 }} tons</div>
+        <div class="metric-subtitle">Next 2 weeks</div>
+    </div>
+    
+    <div class="analytics-metric-card underperforming">
+        <div class="metric-header">
+            <span class="metric-title">Underperforming</span>
+            <div class="metric-icon">⚠️</div>
+        </div>
+        <div class="metric-main-value">{{ underperforming_count }}</div>
+        <div class="metric-subtitle">Farms need attention</div>
+    </div>
+</div>
+
+<!-- Yield Performance Analysis -->
+<div class="chart-section">
+    <div class="chart-header">
+        <div>
+            <h3 class="chart-title">Yield Performance Analysis</h3>
+            <p class="chart-subtitle">Expected vs actual yield by farm</p>
+        </div>
+    </div>
+    <div class="chart-wrapper">
+        <canvas id="yieldPerformanceChart"></canvas>
+    </div>
+</div>
+
+<!-- Seasonal Trends -->
+<div class="chart-section">
+    <div class="chart-header">
+        <div>
+            <h3 class="chart-title">Seasonal Trends</h3>
+            <p class="chart-subtitle">Multi-year harvest comparison</p>
+        </div>
+        <select class="year-selector" id="yearSelector">
+            <option value="2024">2024</option>
+            <option value="2023">2023</option>
+            <option value="2022">2022</option>
+        </select>
+    </div>
+    <div class="chart-wrapper">
+        <canvas id="seasonalTrendsChart"></canvas>
+    </div>
+</div>
+
+<!-- Performance vs Weather Correlation -->
+<div class="chart-section">
+    <div class="chart-header">
+        <div>
+            <h3 class="chart-title">Performance vs Weather Correlation</h3>
+            <p class="chart-subtitle">Monthly performance influenced by weather conditions</p>
+        </div>
+    </div>
+    <div class="chart-wrapper weather-chart-wrapper">
+        <canvas id="weatherCorrelationChart"></canvas>
+    </div>
+</div>
+
+<!-- Bottom sections: Farm Rankings and Predictions -->
+<div class="bottom-sections">
+    <!-- Farm Efficiency Ranking -->
+    <div class="chart-section">
+        <div class="chart-header">
+            <div>
+                <h3 class="chart-title">Farm Efficiency Ranking</h3>
+                <p class="chart-subtitle">Performance ranking by efficiency percentage</p>
+            </div>
+        </div>
+        
+        {% for farm in farm_rankings %}
+        <div class="ranking-item">
+            <div class="ranking-left">
+                <div class="ranking-number {% if forloop.counter <= 3 %}top{% endif %}">
+                    #{{ forloop.counter }}
+                </div>
+                <div class="ranking-info">
+                    <div class="ranking-name">{{ farm.name }}</div>
+                    <div class="ranking-crop">{{ farm.primary_crop }}</div>
+                </div>
+            </div>
+            <div class="ranking-right">
+                <div class="ranking-percentage">{{ farm.efficiency|floatformat:1 }}%</div>
+                <div class="ranking-yield">{{ farm.actual_yield|floatformat:0 }} / {{ farm.expected_yield|floatformat:0 }} tons</div>
+            </div>
+        </div>
+        {% empty %}
+        <div style="text-align: center; color: #6b7280; padding: 40px;">
+            No farm data available
+        </div>
+        {% endfor %}
+    </div>
+    
+    <!-- Upcoming Harvest Predictions -->
+    <div class="chart-section">
+        <div class="chart-header">
+            <div>
+                <h3 class="chart-title">Upcoming Harvest Predictions</h3>
+                <p class="chart-subtitle">AI-powered yield predictions</p>
+            </div>
+        </div>
+        
+        {% for prediction in harvest_predictions %}
+        <div class="prediction-item">
+            <div class="prediction-header">
+                <div class="prediction-crop">{{ prediction.crop }} - {{ prediction.field }}</div>
+                <div class="prediction-amount">{{ prediction.amount|floatformat:0 }} tons</div>
+            </div>
+            <div class="prediction-details">
+                <div class="prediction-date">Expected: {{ prediction.date|date:"Y-m-d" }}</div>
+                <div class="prediction-confidence {% if prediction.confidence < 90 %}medium{% endif %}">
+                    {{ prediction.confidence }}% confidence
+                </div>
+            </div>
+        </div>
+        {% empty %}
+        <div style="text-align: center; color: #6b7280; padding: 40px;">
+            No predictions available
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<script>
+    // Yield Performance Chart
+    const yieldPerformanceCtx = document.getElementById('yieldPerformanceChart').getContext('2d');
+    const yieldData = {{ yield_performance_data|safe }};
+    
+    new Chart(yieldPerformanceCtx, {
+        type: 'bar',
+        data: {
+            labels: yieldData.map(d => d.farm),
+            datasets: [
+                {
+                    label: 'Expected Yield',
+                    data: yieldData.map(d => d.expected),
+                    backgroundColor: '#e5e7eb',
+                    borderRadius: 4,
+                    maxBarThickness: 50
+                },
+                {
+                    label: 'Actual Yield',
+                    data: yieldData.map(d => d.actual),
+                    backgroundColor: '#10b981',
+                    borderRadius: 4,
+                    maxBarThickness: 50
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: { color: '#f1f5f9' }
+                },
+                x: {
+                    grid: { display: false }
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    align: 'end'
+                }
+            }
+        }
+    });
+
+    // Seasonal Trends Chart
+    const seasonalTrendsCtx = document.getElementById('seasonalTrendsChart').getContext('2d');
+    const seasonalData = {{ seasonal_trends_data|safe }};
+    
+    new Chart(seasonalTrendsCtx, {
+        type: 'line',
+        data: {
+            labels: ['2020', '2021', '2022', '2023', '2024'],
+            datasets: [
+                {
+                    label: 'Corn',
+                    data: seasonalData.corn,
+                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    tension: 0.4,
+                    pointRadius: 5
+                },
+                {
+                    label: 'Wheat',
+                    data: seasonalData.wheat,
+                    borderColor: '#10b981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    tension: 0.4,
+                    pointRadius: 5
+                },
+                {
+                    label: 'Soybeans',
+                    data: seasonalData.soybeans,
+                    borderColor: '#f59e0b',
+                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                    tension: 0.4,
+                    pointRadius: 5
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: { color: '#f1f5f9' }
+                },
+                x: {
+                    grid: { color: '#f1f5f9' }
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    align: 'end'
+                }
+            }
+        }
+    });
+
+    // Weather Correlation Chart
+    const weatherCorrelationCtx = document.getElementById('weatherCorrelationChart').getContext('2d');
+    const weatherData = {{ weather_correlation_data|safe }};
+    
+    new Chart(weatherCorrelationCtx, {
+        type: 'line',
+        data: {
+            labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
+            datasets: [
+                {
+                    label: 'Performance',
+                    data: weatherData.performance,
+                    borderColor: '#8b5cf6',
+                    backgroundColor: 'rgba(139, 92, 246, 0.3)',
+                    fill: true,
+                    tension: 0.4,
+                    yAxisID: 'y'
+                },
+                {
+                    label: 'Rainfall',
+                    data: weatherData.rainfall,
+                    borderColor: '#10b981',
+                    backgroundColor: 'transparent',
+                    tension: 0.4,
+                    pointRadius: 4,
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                intersect: false,
+                mode: 'index'
+            },
+            scales: {
+                y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    min: 0,
+                    max: 100,
+                    grid: { color: '#f1f5f9' }
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    min: 0,
+                    max: 8,
+                    grid: { drawOnChartArea: false }
+                },
+                x: {
+                    grid: { color: '#f1f5f9' }
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                    align: 'end'
+                }
+            }
+        }
+    });
+
+    // Year selector functionality
+    document.getElementById('yearSelector').addEventListener('change', function(e) {
+        // Add functionality to update seasonal trends chart based on selected year
+        console.log('Year selected:', e.target.value);
+    });
+</script>
+{% endblock %}

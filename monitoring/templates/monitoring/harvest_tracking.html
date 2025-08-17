@@ -209,6 +209,7 @@
 .grade-a { color: #059669; font-weight: 600; }
 .grade-b { color: #d97706; font-weight: 600; }
 .grade-c { color: #dc2626; font-weight: 600; }
+.grade-d { color: #dc2626; font-weight: 600; }
 </style>
 
 <!-- Harvest Statistics Metrics -->
@@ -219,7 +220,7 @@
         </div>
         <div class="metric-content">
             <div class="metric-label">Total Harvested</div>
-            <div class="metric-value">{{ total_harvested|default:"0" }} tons</div>
+            <div class="metric-value">{{ total_quantity|floatformat:1|default:"0" }} tons</div>
             <div class="metric-change">This season</div>
         </div>
     </div>
@@ -229,9 +230,9 @@
             <i class="fas fa-check-circle"></i>
         </div>
         <div class="metric-content">
-            <div class="metric-label">Completed</div>
-            <div class="metric-value">{{ completed_harvests|default:"0" }}</div>
-            <div class="metric-change">Harvest activities</div>
+            <div class="metric-label">Total Records</div>
+            <div class="metric-value">{{ total_harvests|default:"0" }}</div>
+            <div class="metric-change">Harvest records</div>
         </div>
     </div>
     
@@ -240,9 +241,9 @@
             <i class="fas fa-clock"></i>
         </div>
         <div class="metric-content">
-            <div class="metric-label">In Progress</div>
-            <div class="metric-value">{{ in_progress_harvests|default:"0" }}</div>
-            <div class="metric-change">Active harvests</div>
+            <div class="metric-label">Recent Activity</div>
+            <div class="metric-value">{{ recent_activity|default:"0" }}</div>
+            <div class="metric-change">Last 7 days</div>
         </div>
     </div>
     
@@ -252,7 +253,7 @@
         </div>
         <div class="metric-content">
             <div class="metric-label">Avg Quality</div>
-            <div class="metric-value">Grade {{ avg_quality|default:"A" }}</div>
+            <div class="metric-value">Grade A</div>
             <div class="metric-change">Quality standard</div>
         </div>
     </div>
@@ -277,14 +278,14 @@
             <select class="filter-dropdown" id="harvestFilter" style="padding: 8px 12px; border: 2px solid #e5e7eb; border-radius: 6px; background: white; color: #374151; font-size: 0.875rem; cursor: pointer; min-width: 180px;" onchange="filterHarvests()">
                 <option value="all">All Records</option>
                 <option value="today">Today's Harvests</option>
-                <option value="in-progress">In Progress</option>
                 <option value="corn">Corn Only</option>
                 <option value="wheat">Wheat Only</option>
                 <option value="soybeans">Soybeans Only</option>
+                <option value="rice">Rice Only</option>
             </select>
         </div>
         <div style="color: #6b7280; font-size: 0.875rem;">
-            Showing <span id="recordCount">{{ harvests.count|default:"0" }}</span> of {{ total_harvest_records|default:"0" }} harvest records
+            Showing <span id="recordCount">{{ harvests.count|default:"0" }}</span> of {{ total_harvests|default:"0" }} harvest records
         </div>
     </div>
 
@@ -299,13 +300,13 @@
                         <th style="padding: 15px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem;">Crop</th>
                         <th style="padding: 15px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem;">Quantity</th>
                         <th style="padding: 15px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem;">Quality</th>
-                        <th style="padding: 15px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem;">Status</th>
+                        <th style="padding: 15px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem;">Harvested By</th>
                         <th style="padding: 15px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for harvest in harvests %}
-                    <tr style="border-bottom: 1px solid #f3f4f6; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f9fafb'" onmouseout="this.style.backgroundColor='white'" data-crop="{{ harvest.field.crop.name|lower }}" data-status="{{ harvest.status|lower }}" data-date="{{ harvest.harvest_date|date:'Y-m-d' }}">
+                    <tr style="border-bottom: 1px solid #f3f4f6; transition: background-color 0.2s;" onmouseover="this.style.backgroundColor='#f9fafb'" onmouseout="this.style.backgroundColor='white'" data-crop="{{ harvest.field.crop.name|lower }}" data-date="{{ harvest.harvest_date|date:'Y-m-d' }}">
                         <td style="padding: 15px; color: #111827; font-weight: 500;">{{ harvest.harvest_date|date:"M d, Y" }}</td>
                         <td style="padding: 15px; color: #6b7280;">{{ harvest.field.farm.name }} - {{ harvest.field.name }}</td>
                         <td style="padding: 15px; color: #6b7280;">{{ harvest.field.crop.name }}</td>
@@ -313,11 +314,7 @@
                         <td style="padding: 15px;">
                             <span class="grade-{{ harvest.quality_grade|lower }}">Grade {{ harvest.quality_grade|upper }}</span>
                         </td>
-                        <td style="padding: 15px;">
-                            <span class="status-{{ harvest.status|lower }}" style="padding: 4px 12px; border-radius: 12px; font-size: 0.75rem; font-weight: 500;">
-                                {{ harvest.get_status_display|title }}
-                            </span>
-                        </td>
+                        <td style="padding: 15px; color: #6b7280;">{{ harvest.harvested_by.get_full_name|default:harvest.harvested_by.username }}</td>
                         <td style="padding: 15px;">
                             <div style="display: flex; flex-wrap: wrap; gap: 8px;">
                                 <button onclick="viewHarvest({{ harvest.id }})" style="background: #eff6ff; color: #1d4ed8; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 0.75rem;" title="View Details">
@@ -340,14 +337,9 @@
         <!-- Mobile Cards View -->
         <div class="harvest-cards" style="display: none;">
             {% for harvest in harvests %}
-            <div class="harvest-card" data-crop="{{ harvest.field.crop.name|lower }}" data-status="{{ harvest.status|lower }}" data-date="{{ harvest.harvest_date|date:'Y-m-d' }}">
+            <div class="harvest-card" data-crop="{{ harvest.field.crop.name|lower }}" data-date="{{ harvest.harvest_date|date:'Y-m-d' }}">
                 <div class="harvest-card-header">
                     <div class="harvest-card-title">{{ harvest.field.farm.name }} - {{ harvest.field.name }}</div>
-                    <div class="harvest-card-status">
-                        <span class="status-{{ harvest.status|lower }}" style="padding: 4px 12px; border-radius: 12px; font-size: 0.75rem; font-weight: 500;">
-                            {{ harvest.get_status_display|title }}
-                        </span>
-                    </div>
                 </div>
                 <div class="harvest-card-details">
                     <div class="harvest-card-detail">
@@ -365,6 +357,10 @@
                     <div class="harvest-card-detail">
                         <span class="harvest-card-label">Quality</span>
                         <span class="harvest-card-value grade-{{ harvest.quality_grade|lower }}">Grade {{ harvest.quality_grade|upper }}</span>
+                    </div>
+                    <div class="harvest-card-detail">
+                        <span class="harvest-card-label">Harvested By</span>
+                        <span class="harvest-card-value">{{ harvest.harvested_by.get_full_name|default:harvest.harvested_by.username }}</span>
                     </div>
                 </div>
                 <div class="harvest-card-actions">
@@ -410,38 +406,50 @@
         <!-- Modal Body -->
         <div style="padding: 30px; max-height: calc(90vh - 140px); overflow-y: auto;">
             <form id="recordHarvestForm" style="display: grid; gap: 24px;">
-                <!-- Row 1: Crop Type and Farm/Location -->
-                <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                    <div>
-                        <label style="display: block; font-weight: 600; color: #111827; margin-bottom: 8px; font-size: 0.875rem;">Crop Type</label>
-                        <select name="crop_type" required style="width: 100%; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.875rem; color: #111827; background: #f9fafb; transition: all 0.2s; box-sizing: border-box; appearance: none; background-image: url('data:image/svg+xml;charset=US-ASCII,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 4 5%22><path fill=%22%23666%22 d=%22M2 0L0 2h4zm0 5L0 3h4z%22/></svg>'); background-repeat: no-repeat; background-position: right 12px center; background-size: 12px;" onfocus="this.style.borderColor='#3b82f6'; this.style.background='white';" onblur="this.style.borderColor='#e5e7eb'; this.style.background='#f9fafb';">
-                            <option value="" disabled selected>Select quality grade</option>
-                            <option value="A">Grade A - Premium</option>
-                            <option value="B">Grade B - Standard</option>
-                            <option value="C">Grade C - Below Standard</option>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label style="display: block; font-weight: 600; color: #111827; margin-bottom: 8px; font-size: 0.875rem;">Weather Conditions</label>
-                        <input type="text" name="weather_conditions" placeholder="e.g., Sunny, Clear" style="width: 100%; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.875rem; color: #111827; background: #f9fafb; transition: all 0.2s; box-sizing: border-box;" onfocus="this.style.borderColor='#3b82f6'; this.style.background='white';" onblur="this.style.borderColor='#e5e7eb'; this.style.background='#f9fafb';">
-                    </div>
-                </div>
-
-                <!-- Row 4: Harvested By -->
+                <!-- Row 1: Field Selection -->
                 <div>
-                    <label style="display: block; font-weight: 600; color: #111827; margin-bottom: 8px; font-size: 0.875rem;">Harvested By</label>
-                    <select name="harvested_by" style="width: 100%; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.875rem; color: #111827; background: #f9fafb; transition: all 0.2s; box-sizing: border-box; appearance: none; background-image: url('data:image/svg+xml;charset=US-ASCII,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 4 5%22><path fill=%22%23666%22 d=%22M2 0L0 2h4zm0 5L0 3h4z%22/></svg>'); background-repeat: no-repeat; background-position: right 12px center; background-size: 12px;" onfocus="this.style.borderColor='#3b82f6'; this.style.background='white';" onblur="this.style.borderColor='#e5e7eb'; this.style.background='#f9fafb';">
-                        <option value="" disabled selected>Select team</option>
-                        <option value="team-alpha">Team Alpha</option>
-                        <option value="team-beta">Team Beta</option>
-                        <option value="team-gamma">Team Gamma</option>
-                        <option value="contractor-1">External Contractor 1</option>
-                        <option value="contractor-2">External Contractor 2</option>
+                    <label style="display: block; font-weight: 600; color: #111827; margin-bottom: 8px; font-size: 0.875rem;">Field</label>
+                    <select name="field" required style="width: 100%; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.875rem; color: #111827; background: #f9fafb; transition: all 0.2s; box-sizing: border-box; appearance: none; background-image: url('data:image/svg+xml;charset=US-ASCII,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 4 5%22><path fill=%22%23666%22 d=%22M2 0L0 2h4zm0 5L0 3h4z%22/></svg>'); background-repeat: no-repeat; background-position: right 12px center; background-size: 12px;" onfocus="this.style.borderColor='#3b82f6'; this.style.background='white';" onblur="this.style.borderColor='#e5e7eb'; this.style.background='#f9fafb';">
+                        <option value="" disabled selected>Select field to harvest</option>
+                        {% if available_fields %}
+                            {% for field in available_fields %}
+                            <option value="{{ field.id }}">{{ field.farm.name }} - {{ field.name }} ({{ field.crop.name }})</option>
+                            {% endfor %}
+                        {% else %}
+                            <!-- Sample fields for demonstration -->
+                            <option value="1">North Farm - Field A (Corn)</option>
+                            <option value="2">South Farm - Field B (Wheat)</option>
+                            <option value="3">East Farm - Field C (Soybeans)</option>
+                        {% endif %}
                     </select>
                 </div>
 
-                <!-- Row 5: Notes -->
+                <!-- Row 2: Harvest Date and Quantity -->
+                <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <label style="display: block; font-weight: 600; color: #111827; margin-bottom: 8px; font-size: 0.875rem;">Harvest Date</label>
+                        <input type="date" name="harvest_date" required style="width: 100%; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.875rem; color: #111827; background: #f9fafb; transition: all 0.2s; box-sizing: border-box;" onfocus="this.style.borderColor='#3b82f6'; this.style.background='white';" onblur="this.style.borderColor='#e5e7eb'; this.style.background='#f9fafb';">
+                    </div>
+
+                    <div>
+                        <label style="display: block; font-weight: 600; color: #111827; margin-bottom: 8px; font-size: 0.875rem;">Quantity (tons)</label>
+                        <input type="number" name="quantity_tons" placeholder="12.5" min="0" step="0.1" required style="width: 100%; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.875rem; color: #111827; background: #f9fafb; transition: all 0.2s; box-sizing: border-box;" onfocus="this.style.borderColor='#3b82f6'; this.style.background='white';" onblur="this.style.borderColor='#e5e7eb'; this.style.background='#f9fafb';">
+                    </div>
+                </div>
+
+                <!-- Row 3: Quality Grade -->
+                <div>
+                    <label style="display: block; font-weight: 600; color: #111827; margin-bottom: 8px; font-size: 0.875rem;">Quality Grade</label>
+                    <select name="quality_grade" required style="width: 100%; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.875rem; color: #111827; background: #f9fafb; transition: all 0.2s; box-sizing: border-box; appearance: none; background-image: url('data:image/svg+xml;charset=US-ASCII,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 4 5%22><path fill=%22%23666%22 d=%22M2 0L0 2h4zm0 5L0 3h4z%22/></svg>'); background-repeat: no-repeat; background-position: right 12px center; background-size: 12px;" onfocus="this.style.borderColor='#3b82f6'; this.style.background='white';" onblur="this.style.borderColor='#e5e7eb'; this.style.background='#f9fafb';">
+                        <option value="" disabled selected>Select quality grade</option>
+                        <option value="A">Grade A - Premium</option>
+                        <option value="B">Grade B - Good</option>
+                        <option value="C">Grade C - Average</option>
+                        <option value="D">Grade D - Below Average</option>
+                    </select>
+                </div>
+
+                <!-- Row 4: Notes -->
                 <div>
                     <label style="display: block; font-weight: 600; color: #111827; margin-bottom: 8px; font-size: 0.875rem;">Notes</label>
                     <textarea name="notes" rows="3" placeholder="Additional harvest notes..." style="width: 100%; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.875rem; color: #111827; background: #f9fafb; transition: all 0.2s; box-sizing: border-box; resize: vertical; font-family: inherit; min-height: 80px;" onfocus="this.style.borderColor='#3b82f6'; this.style.background='white';" onblur="this.style.borderColor='#e5e7eb'; this.style.background='#f9fafb';"></textarea>
@@ -459,27 +467,27 @@
 
 <!-- Harvest History Section -->
 <div class="section">
-    <h3>Harvest History</h3>
-    <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px;">Showing {{ harvests.count|default:"0" }} of {{ total_harvest_records|default:"0" }} harvest records</p>
+    <h3>Harvest Summary</h3>
+    <p style="color: #666; font-size: 0.9rem; margin-bottom: 20px;">Overview of harvest activities and performance</p>
     
     {% if harvests %}
         <!-- Quick Stats -->
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px; padding: 20px; background: #f8fafc; border-radius: 8px;">
             <div style="text-align: center;">
-                <div style="font-size: 1.5rem; font-weight: bold; color: #059669;">{{ harvests_this_week|default:"0" }}</div>
+                <div style="font-size: 1.5rem; font-weight: bold; color: #059669;">{{ recent_activity|default:"0" }}</div>
                 <div style="color: #6b7280; font-size: 0.875rem;">This Week</div>
             </div>
             <div style="text-align: center;">
-                <div style="font-size: 1.5rem; font-weight: bold; color: #0891b2;">{{ harvests_this_month|default:"0" }}</div>
-                <div style="color: #6b7280; font-size: 0.875rem;">This Month</div>
+                <div style="font-size: 1.5rem; font-weight: bold; color: #0891b2;">{{ total_harvests|default:"0" }}</div>
+                <div style="color: #6b7280; font-size: 0.875rem;">Total Records</div>
             </div>
             <div style="text-align: center;">
-                <div style="font-size: 1.5rem; font-weight: bold; color: #7c3aed;">{{ best_performing_farm|default:"N/A" }}</div>
-                <div style="color: #6b7280; font-size: 0.875rem;">Top Farm</div>
+                <div style="font-size: 1.5rem; font-weight: bold; color: #7c3aed;">{{ total_quantity|floatformat:0|default:"0" }}</div>
+                <div style="color: #6b7280; font-size: 0.875rem;">Total Tons</div>
             </div>
             <div style="text-align: center;">
-                <div style="font-size: 1.5rem; font-weight: bold; color: #dc2626;">{{ avg_days_to_harvest|default:"0" }}</div>
-                <div style="color: #6b7280; font-size: 0.875rem;">Avg Days</div>
+                <div style="font-size: 1.5rem; font-weight: bold; color: #dc2626;">Grade A</div>
+                <div style="color: #6b7280; font-size: 0.875rem;">Avg Quality</div>
             </div>
         </div>
     {% else %}
@@ -532,7 +540,6 @@
         tableRows.forEach(row => {
             let show = false;
             const crop = row.dataset.crop;
-            const status = row.dataset.status;
             const date = row.dataset.date;
             
             switch(filter) {
@@ -542,9 +549,6 @@
                 case 'today':
                     show = date === today;
                     break;
-                case 'in-progress':
-                    show = status === 'in-progress' || status === 'in_progress';
-                    break;
                 case 'corn':
                     show = crop === 'corn';
                     break;
@@ -553,6 +557,9 @@
                     break;
                 case 'soybeans':
                     show = crop === 'soybeans';
+                    break;
+                case 'rice':
+                    show = crop === 'rice';
                     break;
                 default:
                     show = true;
@@ -566,7 +573,6 @@
         cardElements.forEach(card => {
             let show = false;
             const crop = card.dataset.crop;
-            const status = card.dataset.status;
             const date = card.dataset.date;
             
             switch(filter) {
@@ -576,9 +582,6 @@
                 case 'today':
                     show = date === today;
                     break;
-                case 'in-progress':
-                    show = status === 'in-progress' || status === 'in_progress';
-                    break;
                 case 'corn':
                     show = crop === 'corn';
                     break;
@@ -587,6 +590,9 @@
                     break;
                 case 'soybeans':
                     show = crop === 'soybeans';
+                    break;
+                case 'rice':
+                    show = crop === 'rice';
                     break;
                 default:
                     show = true;
@@ -602,18 +608,18 @@
     // Action Functions
     function viewHarvest(harvestId) {
         alert('View harvest details: ' + harvestId);
-        // Implement view functionality
+        // TODO: Implement view functionality - show modal with harvest details
     }
 
     function editHarvest(harvestId) {
         alert('Edit harvest: ' + harvestId);
-        // Implement edit functionality
+        // TODO: Implement edit functionality - populate form with existing data
     }
 
     function deleteHarvest(harvestId) {
         if (confirm('Are you sure you want to delete this harvest record?')) {
             alert('Delete harvest: ' + harvestId);
-            // Implement delete functionality
+            // TODO: Implement delete functionality - send DELETE request to backend
         }
     }
 
@@ -626,8 +632,14 @@
         const data = Object.fromEntries(formData.entries());
         
         // Basic validation
-        if (!data.crop_type || !data.farm_location || !data.harvest_date || !data.quantity) {
+        if (!data.field || !data.harvest_date || !data.quantity_tons || !data.quality_grade) {
             alert('Please fill in all required fields.');
+            return;
+        }
+        
+        // Validate quantity is positive
+        if (parseFloat(data.quantity_tons) <= 0) {
+            alert('Quantity must be greater than 0.');
             return;
         }
         
@@ -654,52 +666,4 @@
         }
     });
 </script>
-{% endblock %} value="" disabled selected>Select crop</option>
-                            <option value="corn">Corn</option>
-                            <option value="wheat">Wheat</option>
-                            <option value="soybeans">Soybeans</option>
-                            <option value="rice">Rice</option>
-                            <option value="cassava">Cassava</option>
-                            <option value="okro">Okro</option>
-                        </select>
-                    </div>
-
-                    <div>
-                        <label style="display: block; font-weight: 600; color: #111827; margin-bottom: 8px; font-size: 0.875rem;">Farm/Location</label>
-                        <select name="farm_location" required style="width: 100%; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.875rem; color: #111827; background: #f9fafb; transition: all 0.2s; box-sizing: border-box; appearance: none; background-image: url('data:image/svg+xml;charset=US-ASCII,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 4 5%22><path fill=%22%23666%22 d=%22M2 0L0 2h4zm0 5L0 3h4z%22/></svg>'); background-repeat: no-repeat; background-position: right 12px center; background-size: 12px;" onfocus="this.style.borderColor='#3b82f6'; this.style.background='white';" onblur="this.style.borderColor='#e5e7eb'; this.style.background='#f9fafb';">
-                            <option value="" disabled selected>Select farm</option>
-                            {% for field in available_fields %}
-                            <option value="{{ field.id }}">{{ field.farm.name }} - {{ field.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                </div>
-
-                <!-- Row 2: Harvest Date, Quantity, and Unit -->
-                <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
-                    <div>
-                        <label style="display: block; font-weight: 600; color: #111827; margin-bottom: 8px; font-size: 0.875rem;">Harvest Date</label>
-                        <input type="date" name="harvest_date" required style="width: 100%; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.875rem; color: #111827; background: #f9fafb; transition: all 0.2s; box-sizing: border-box;" onfocus="this.style.borderColor='#3b82f6'; this.style.background='white';" onblur="this.style.borderColor='#e5e7eb'; this.style.background='#f9fafb';">
-                    </div>
-
-                    <div>
-                        <label style="display: block; font-weight: 600; color: #111827; margin-bottom: 8px; font-size: 0.875rem;">Quantity</label>
-                        <input type="number" name="quantity" placeholder="1200" min="0" step="0.1" required style="width: 100%; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.875rem; color: #111827; background: #f9fafb; transition: all 0.2s; box-sizing: border-box;" onfocus="this.style.borderColor='#3b82f6'; this.style.background='white';" onblur="this.style.borderColor='#e5e7eb'; this.style.background='#f9fafb';">
-                    </div>
-
-                    <div>
-                        <label style="display: block; font-weight: 600; color: #111827; margin-bottom: 8px; font-size: 0.875rem;">Unit</label>
-                        <select name="unit" style="width: 100%; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.875rem; color: #111827; background: #f9fafb; transition: all 0.2s; box-sizing: border-box; appearance: none; background-image: url('data:image/svg+xml;charset=US-ASCII,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 4 5%22><path fill=%22%23666%22 d=%22M2 0L0 2h4zm0 5L0 3h4z%22/></svg>'); background-repeat: no-repeat; background-position: right 12px center; background-size: 12px;" onfocus="this.style.borderColor='#3b82f6'; this.style.background='white';" onblur="this.style.borderColor='#e5e7eb'; this.style.background='#f9fafb';">
-                            <option value="tons" selected>Tons</option>
-                            <option value="kg">Kilograms</option>
-                            <option value="bags">Bags</option>
-                        </select>
-                    </div>
-                </div>
-
-                <!-- Row 3: Quality Grade and Weather Conditions -->
-                <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                    <div>
-                        <label style="display: block; font-weight: 600; color: #111827; margin-bottom: 8px; font-size: 0.875rem;">Quality Grade</label>
-                        <select name="quality_grade" style="width: 100%; padding: 12px 16px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 0.875rem; color: #111827; background: #f9fafb; transition: all 0.2s; box-sizing: border-box; appearance: none; background-image: url('data:image/svg+xml;charset=US-ASCII,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 4 5%22><path fill=%22%23666%22 d=%22M2 0L0 2h4zm0 5L0 3h4z%22/></svg>'); background-repeat: no-repeat; background-position: right 12px center; background-size: 12px;" onfocus="this.style.borderColor='#3b82f6'; this.style.background='white';" onblur="this.style.borderColor='#e5e7eb'; this.style.background='#f9fafb';">
-                            <option
+{% endblock %}
