@@ -1,15 +1,23 @@
 # monitoring/views.py
-from django.shortcuts import render
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.db.models import Sum, Count, Avg, Q
+from django.db.models import Sum, Count, Avg, Q, F
 from django.db.models.functions import Extract
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from .models import Farm, HarvestRecord, Inventory, Crop, Field
 from collections import defaultdict
 from decimal import Decimal
 import json
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
+from django.contrib import messages
+from django.http import JsonResponse
+from django.db import transaction
+from django.utils import timezone
+from .forms import AddInventoryForm, RemoveInventoryForm, InventoryFilterForm, BulkInventoryUpdateForm
+from django.db import models, transaction
+
+
 
 # Fixed monitoring/views.py - dashboard function
 def dashboard(request):
@@ -704,34 +712,402 @@ def analytics(request):
         
         return render(request, 'monitoring/analytics.html', fallback_context)
 
-@login_required
+
 def inventory(request):
     """
-    Inventory management view
+    Main inventory management view with filtering and CRUD operations
     """
-    inventory_items = Inventory.objects.select_related('crop').order_by('-updated_at')
+    # Initialize forms
+    add_form = AddInventoryForm(user=request.user)
+    remove_form = RemoveInventoryForm()
+    filter_form = InventoryFilterForm(request.GET or None)
+    bulk_form = BulkInventoryUpdateForm()
     
-    # Calculate total inventory value and quantity
-    total_quantity = inventory_items.aggregate(
-        total=Sum('quantity_tons')
+    # Base queryset
+    inventory_items = Inventory.objects.select_related('crop', 'managed_by').order_by('-date_stored')
+    
+    # Apply filters
+    if filter_form.is_valid():
+        if filter_form.cleaned_data.get('crop'):
+            inventory_items = inventory_items.filter(crop=filter_form.cleaned_data['crop'])
+        
+        if filter_form.cleaned_data.get('storage_location'):
+            inventory_items = inventory_items.filter(storage_location=filter_form.cleaned_data['storage_location'])
+        
+        if filter_form.cleaned_data.get('quality_grade'):
+            inventory_items = inventory_items.filter(quality_grade=filter_form.cleaned_data['quality_grade'])
+        
+        if filter_form.cleaned_data.get('date_from'):
+            inventory_items = inventory_items.filter(date_stored__gte=filter_form.cleaned_data['date_from'])
+        
+        if filter_form.cleaned_data.get('date_to'):
+            inventory_items = inventory_items.filter(date_stored__lte=filter_form.cleaned_data['date_to'])
+        
+        # Status filtering
+        status = filter_form.cleaned_data.get('status')
+        if status == 'expiring':
+            thirty_days = date.today() + timedelta(days=30)
+            inventory_items = inventory_items.filter(expiry_date__lte=thirty_days, expiry_date__gt=date.today())
+        elif status == 'expired':
+            inventory_items = inventory_items.filter(expiry_date__lt=date.today())
+        elif status == 'low_stock':
+            inventory_items = inventory_items.filter(quantity_tons__lt=10)
+        elif status == 'good':
+            thirty_days = date.today() + timedelta(days=30)
+            inventory_items = inventory_items.filter(
+                Q(expiry_date__gt=thirty_days) | Q(expiry_date__isnull=True),
+                quantity_tons__gte=10
+            )
+    
+    # Calculate metrics
+    total_quantity = inventory_items.aggregate(total=Sum('quantity_tons'))['total'] or 0
+    total_value = inventory_items.aggregate(
+        total=Sum(F('quantity_tons') * F('unit_price'))
     )['total'] or 0
     
-    # Group by crop type
-    crop_inventory = inventory_items.values('crop__name').annotate(
+    # Status counts
+    thirty_days = date.today() + timedelta(days=30)
+    low_stock_count = inventory_items.filter(quantity_tons__lt=10).count()
+    expiring_count = inventory_items.filter(
+        expiry_date__lte=thirty_days,
+        expiry_date__gt=date.today()
+    ).count()
+    expired_count = inventory_items.filter(expiry_date__lt=date.today()).count()
+    
+    # Storage locations summary
+    storage_locations = inventory_items.values('storage_location').annotate(
         total_quantity=Sum('quantity_tons'),
         item_count=Count('id')
     ).order_by('-total_quantity')
     
+    # Crop summary
+    crop_summary = inventory_items.values('crop__name').annotate(
+        total_quantity=Sum('quantity_tons'),
+        item_count=Count('id'),
+        avg_quality=models.Avg('quality_grade')
+    ).order_by('-total_quantity')
+    
     context = {
-        'inventory_items': inventory_items,
+        'inventory_items': inventory_items[:50],  # Paginate in production
+        'total_items': inventory_items.count(),
         'total_quantity': total_quantity,
-        'crop_inventory': crop_inventory,
-        'total_items': inventory_items.count()
+        'total_value': total_value,
+        'low_stock_count': low_stock_count,
+        'expiring_count': expiring_count,
+        'expired_count': expired_count,
+        'storage_locations': storage_locations,
+        'crop_summary': crop_summary,
+        'add_form': add_form,
+        'remove_form': remove_form,
+        'filter_form': filter_form,
+        'bulk_form': bulk_form,
     }
     
     return render(request, 'monitoring/inventory.html', context)
 
 
+@login_required
+def add_inventory(request):
+    """
+    Add new inventory item
+    """
+    if request.method == 'POST':
+        form = AddInventoryForm(request.POST, user=request.user)
+        if form.is_valid():
+            try:
+                inventory_item = form.save()
+                messages.success(
+                    request, 
+                    f"Successfully added {inventory_item.quantity_tons} tons of {inventory_item.crop.name} to inventory."
+                )
+                return JsonResponse({
+                    'success': True,
+                    'message': 'Inventory added successfully',
+                    'redirect': True
+                })
+            except Exception as e:
+                messages.error(request, f"Error adding inventory: {str(e)}")
+                return JsonResponse({
+                    'success': False,
+                    'message': f"Error adding inventory: {str(e)}"
+                })
+        else:
+            return JsonResponse({
+                'success': False,
+                'message': 'Form validation failed',
+                'errors': form.errors
+            })
+    
+    return redirect('monitoring:inventory')
+
+
+@login_required
+def remove_inventory(request):
+    """
+    Remove inventory items
+    """
+    if request.method == 'POST':
+        form = RemoveInventoryForm(request.POST)
+        if form.is_valid():
+            crop = form.cleaned_data['crop']
+            storage_location = form.cleaned_data['storage_location']
+            quantity_to_remove = form.cleaned_data['quantity_tons']
+            reason = form.cleaned_data.get('reason', '')
+            
+            try:
+                with transaction.atomic():
+                    # Get inventory items for this crop and location, ordered by date (FIFO)
+                    inventory_items = Inventory.objects.filter(
+                        crop=crop,
+                        storage_location=storage_location,
+                        quantity_tons__gt=0
+                    ).order_by('date_stored')
+                    
+                    if not inventory_items.exists():
+                        return JsonResponse({
+                            'success': False,
+                            'message': f"No inventory found for {crop.name} at {storage_location}"
+                        })
+                    
+                    total_available = inventory_items.aggregate(
+                        total=Sum('quantity_tons')
+                    )['total'] or 0
+                    
+                    if quantity_to_remove > total_available:
+                        return JsonResponse({
+                            'success': False,
+                            'message': f"Only {total_available} tons available, cannot remove {quantity_to_remove} tons"
+                        })
+                    
+                    remaining_to_remove = quantity_to_remove
+                    items_updated = []
+                    
+                    # Remove from inventory items (FIFO - First In, First Out)
+                    for item in inventory_items:
+                        if remaining_to_remove <= 0:
+                            break
+                        
+                        if item.quantity_tons <= remaining_to_remove:
+                            # Remove entire item
+                            remaining_to_remove -= item.quantity_tons
+                            items_updated.append(f"Removed all {item.quantity_tons} tons from {item.batch_number or 'batch'}")
+                            item.delete()
+                        else:
+                            # Partial removal
+                            removed_amount = remaining_to_remove
+                            item.quantity_tons -= remaining_to_remove
+                            item.notes += f"\n[{date.today()}] Removed {removed_amount} tons. Reason: {reason}"
+                            item.save()
+                            items_updated.append(f"Removed {removed_amount} tons from {item.batch_number or 'batch'}")
+                            remaining_to_remove = 0
+                    
+                    messages.success(
+                        request,
+                        f"Successfully removed {quantity_to_remove} tons of {crop.name} from {storage_location}."
+                    )
+                    
+                    return JsonResponse({
+                        'success': True,
+                        'message': f"Successfully removed {quantity_to_remove} tons",
+                        'details': items_updated,
+                        'redirect': True
+                    })
+                    
+            except Exception as e:
+                return JsonResponse({
+                    'success': False,
+                    'message': f"Error removing inventory: {str(e)}"
+                })
+        else:
+            return JsonResponse({
+                'success': False,
+                'message': 'Form validation failed',
+                'errors': form.errors
+            })
+    
+    return redirect('monitoring:inventory')
+
+
+@login_required
+def get_inventory_locations(request):
+    """
+    AJAX endpoint to get available storage locations for a specific crop
+    """
+    crop_id = request.GET.get('crop_id')
+    if crop_id:
+        locations = Inventory.objects.filter(
+            crop_id=crop_id,
+            quantity_tons__gt=0
+        ).values('storage_location').annotate(
+            total_quantity=Sum('quantity_tons')
+        ).order_by('storage_location')
+        
+        location_data = [
+            {
+                'value': loc['storage_location'],
+                'label': f"{loc['storage_location']} ({loc['total_quantity']} tons available)"
+            }
+            for loc in locations
+        ]
+        
+        return JsonResponse({'locations': location_data})
+    
+    return JsonResponse({'locations': []})
+
+
+@login_required
+def inventory_summary(request):
+    """
+    Get inventory summary data for dashboard
+    """
+    # Total metrics
+    total_quantity = Inventory.objects.aggregate(total=Sum('quantity_tons'))['total'] or 0
+    total_items = Inventory.objects.count()
+    total_value = Inventory.objects.aggregate(
+        total=Sum(F('quantity_tons') * F('unit_price'))
+    )['total'] or 0
+    
+    # Status counts
+    thirty_days = date.today() + timedelta(days=30)
+    low_stock_count = Inventory.objects.filter(quantity_tons__lt=10).count()
+    expiring_count = Inventory.objects.filter(
+        expiry_date__lte=thirty_days,
+        expiry_date__gt=date.today()
+    ).count()
+    
+    # Top crops by quantity
+    top_crops = Inventory.objects.values('crop__name').annotate(
+        total_quantity=Sum('quantity_tons')
+    ).order_by('-total_quantity')[:5]
+    
+    # Storage utilization
+    storage_utilization = Inventory.objects.values('storage_location').annotate(
+        total_quantity=Sum('quantity_tons'),
+        item_count=Count('id')
+    ).order_by('-total_quantity')
+    
+    data = {
+        'total_quantity': float(total_quantity),
+        'total_items': total_items,
+        'total_value': float(total_value) if total_value else 0,
+        'low_stock_count': low_stock_count,
+        'expiring_count': expiring_count,
+        'top_crops': list(top_crops),
+        'storage_utilization': list(storage_utilization)
+    }
+    
+    return JsonResponse(data)
+
+
+@login_required
+def bulk_update_inventory(request):
+    """
+    Bulk update inventory items
+    """
+    if request.method == 'POST':
+        form = BulkInventoryUpdateForm(request.POST)
+        if form.is_valid():
+            action = form.cleaned_data['action']
+            selected_items = json.loads(form.cleaned_data['selected_items'])
+            
+            if not selected_items:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'No items selected'
+                })
+            
+            try:
+                with transaction.atomic():
+                    items = Inventory.objects.filter(id__in=selected_items)
+                    count = items.count()
+                    
+                    if action == 'update_location':
+                        new_location = form.cleaned_data['new_storage_location']
+                        items.update(storage_location=new_location, updated_at=timezone.now())
+                        message = f"Updated storage location for {count} items to {new_location}"
+                    
+                    elif action == 'update_condition':
+                        new_condition = form.cleaned_data['new_storage_condition']
+                        items.update(storage_condition=new_condition, updated_at=timezone.now())
+                        message = f"Updated storage condition for {count} items"
+                    
+                    elif action == 'mark_expired':
+                        items.update(expiry_date=date.today() - timedelta(days=1), updated_at=timezone.now())
+                        message = f"Marked {count} items as expired"
+                    
+                    elif action == 'reserve':
+                        items.update(is_reserved=True, updated_at=timezone.now())
+                        message = f"Reserved {count} items"
+                    
+                    elif action == 'unreserve':
+                        items.update(is_reserved=False, updated_at=timezone.now())
+                        message = f"Unreserved {count} items"
+                    
+                    messages.success(request, message)
+                    return JsonResponse({
+                        'success': True,
+                        'message': message,
+                        'redirect': True
+                    })
+                    
+            except Exception as e:
+                return JsonResponse({
+                    'success': False,
+                    'message': f"Error performing bulk update: {str(e)}"
+                })
+        else:
+            return JsonResponse({
+                'success': False,
+                'message': 'Form validation failed',
+                'errors': form.errors
+            })
+    
+    return redirect('monitoring:inventory')
+
+
+@login_required
+def export_inventory(request):
+    """
+    Export inventory data to CSV
+    """
+    import csv
+    from django.http import HttpResponse
+    
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="inventory_export.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow([
+        'Crop', 'Quantity (tons)', 'Storage Location', 'Quality Grade',
+        'Date Stored', 'Expiry Date', 'Storage Condition', 'Batch Number',
+        'Unit Price', 'Total Value', 'Managed By', 'Status'
+    ])
+    
+    for item in Inventory.objects.select_related('crop', 'managed_by'):
+        status = 'Good'
+        if item.is_expired:
+            status = 'Expired'
+        elif item.days_until_expiry and item.days_until_expiry <= 30:
+            status = 'Expiring Soon'
+        elif item.is_low_stock:
+            status = 'Low Stock'
+        
+        writer.writerow([
+            item.crop.name,
+            item.quantity_tons,
+            item.storage_location,
+            item.get_quality_grade_display(),
+            item.date_stored,
+            item.expiry_date or '',
+            item.get_storage_condition_display(),
+            item.batch_number or '',
+            item.unit_price or '',
+            item.total_value or '',
+            item.managed_by.get_full_name() or item.managed_by.username,
+            status
+        ])
+    
+    return response
 @login_required
 def reports(request):
     """

@@ -1,0 +1,477 @@
+{% extends 'monitoring/base.html' %}
+
+{% block title %}Inventory Management - HarvestPro{% endblock %}
+
+{% block page_title %}Inventory{% endblock %}
+
+{% block content %}
+<style>
+/* Inventory-specific styles */
+.status-expiring { background: #fef3c7; color: #92400e; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
+.status-low-stock { background: #fef2f2; color: #dc2626; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
+.status-good { background: #dcfce7; color: #166534; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
+
+.grade-a { background: #065f46; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
+.grade-b { background: #1f2937; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
+.grade-c { background: #6b7280; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
+
+/* Modal styles */
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    display: none;
+}
+
+.modal-container {
+    background: white;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow: hidden;
+    box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+}
+
+.modal-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid #e5e7eb;
+    position: relative;
+}
+
+.modal-body {
+    padding: 24px;
+    max-height: calc(90vh - 140px);
+    overflow-y: auto;
+}
+
+.form-grid {
+    display: grid;
+    gap: 20px;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.form-label {
+    font-weight: 600;
+    color: #111827;
+    font-size: 0.875rem;
+}
+
+.form-input, .form-select {
+    padding: 10px 12px;
+    border: 2px solid #e5e7eb;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    background: #f9fafb;
+    transition: all 0.2s;
+}
+
+.form-input:focus, .form-select:focus {
+    outline: none;
+    border-color: #3b82f6;
+    background: white;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.btn {
+    padding: 10px 20px;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.btn-primary {
+    background: #111827;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #374151;
+}
+
+.btn-secondary {
+    background: white;
+    color: #374151;
+    border: 2px solid #e5e7eb;
+}
+
+.btn-secondary:hover {
+    background: #f9fafb;
+    border-color: #d1d5db;
+}
+
+.btn-danger {
+    background: #dc2626;
+    color: white;
+}
+
+.btn-danger:hover {
+    background: #b91c1c;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .form-row {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+    
+    .modal-overlay {
+        padding: 10px;
+    }
+    
+    .modal-container {
+        max-height: calc(100vh - 20px);
+    }
+    
+    .inventory-table-wrapper {
+        overflow-x: auto;
+    }
+    
+    .inventory-table {
+        min-width: 800px;
+    }
+}
+</style>
+
+<!-- Inventory Statistics Metrics -->
+<div class="metrics">
+    <div class="metric-card">
+        <div class="metric-icon">
+            <i class="fas fa-boxes"></i>
+        </div>
+        <div class="metric-content">
+            <div class="metric-label">Total Inventory</div>
+            <div class="metric-value">9,570 tons</div>
+            <div class="metric-change">Across all locations</div>
+        </div>
+    </div>
+    
+    <div class="metric-card">
+        <div class="metric-icon">
+            <i class="fas fa-warehouse"></i>
+        </div>
+        <div class="metric-content">
+            <div class="metric-label">Storage Locations</div>
+            <div class="metric-value">5</div>
+            <div class="metric-change">Active warehouses</div>
+        </div>
+    </div>
+    
+    <div class="metric-card">
+        <div class="metric-icon">
+            <i class="fas fa-exclamation-triangle"></i>
+        </div>
+        <div class="metric-content">
+            <div class="metric-label">Low Stock Items</div>
+            <div class="metric-value">2</div>
+            <div class="metric-change">Need restocking</div>
+        </div>
+    </div>
+    
+    <div class="metric-card">
+        <div class="metric-icon">
+            <i class="fas fa-clock"></i>
+        </div>
+        <div class="metric-content">
+            <div class="metric-label">Expiring Soon</div>
+            <div class="metric-value">4</div>
+            <div class="metric-change">Within 30 days</div>
+        </div>
+    </div>
+</div>
+
+<!-- Inventory Management Section -->
+<div class="section">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+        <div>
+            <h3 style="margin: 0 0 5px 0; color: #111827;">Inventory Management</h3>
+            <p style="color: #6b7280; margin: 0; font-size: 0.875rem;">Track all stored crops and their conditions</p>
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button class="btn btn-secondary" onclick="showRemoveModal()">
+                <i class="fas fa-minus"></i>
+                Remove Stock
+            </button>
+            <button class="btn btn-primary" onclick="showAddModal()">
+                <i class="fas fa-plus"></i>
+                Add Stock
+            </button>
+        </div>
+    </div>
+
+    <!-- Current Inventory Table -->
+    <div style="background: white; border-radius: 8px; border: 1px solid #e5e7eb; margin-bottom: 20px;">
+        <div style="padding: 16px 20px; border-bottom: 1px solid #f3f4f6;">
+            <h4 style="margin: 0; color: #111827; font-size: 1rem;">Current Inventory</h4>
+            <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.875rem;">Track all stored crops and their conditions</p>
+        </div>
+        
+        <div class="inventory-table-wrapper" style="overflow-x: auto;">
+            <table class="inventory-table" style="width: 100%; border-collapse: collapse;">
+                <thead style="background: #f8fafc;">
+                    <tr>
+                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Crop</th>
+                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Quantity</th>
+                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Location</th>
+                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Quality</th>
+                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Date Stored</th>
+                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Expiry Date</th>
+                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr style="border-bottom: 1px solid #f3f4f6;">
+                        <td style="padding: 16px; font-weight: 500; color: #111827;">Corn</td>
+                        <td style="padding: 16px; color: #6b7280;">5200 tons</td>
+                        <td style="padding: 16px; color: #6b7280;">Warehouse A</td>
+                        <td style="padding: 16px;"><span class="grade-a">Grade A</span></td>
+                        <td style="padding: 16px; color: #6b7280;">2024-08-05</td>
+                        <td style="padding: 16px; color: #6b7280;">2025-02-05</td>
+                        <td style="padding: 16px;"><span class="status-expiring">Expiring</span></td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #f3f4f6;">
+                        <td style="padding: 16px; font-weight: 500; color: #111827;">Wheat</td>
+                        <td style="padding: 16px; color: #6b7280;">3800 tons</td>
+                        <td style="padding: 16px; color: #6b7280;">Warehouse B</td>
+                        <td style="padding: 16px;"><span class="grade-b">Grade B</span></td>
+                        <td style="padding: 16px; color: #6b7280;">2024-08-04</td>
+                        <td style="padding: 16px; color: #6b7280;">2024-12-04</td>
+                        <td style="padding: 16px;"><span class="status-expiring">Expiring</span></td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #f3f4f6;">
+                        <td style="padding: 16px; font-weight: 500; color: #111827;">Soybeans</td>
+                        <td style="padding: 16px; color: #6b7280;">450 tons</td>
+                        <td style="padding: 16px; color: #6b7280;">Warehouse A</td>
+                        <td style="padding: 16px;"><span class="grade-a">Grade A</span></td>
+                        <td style="padding: 16px; color: #6b7280;">2024-07-20</td>
+                        <td style="padding: 16px; color: #6b7280;">2024-10-20</td>
+                        <td style="padding: 16px;"><span class="status-low-stock">Low Stock</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 16px; font-weight: 500; color: #111827;">Rice</td>
+                        <td style="padding: 16px; color: #6b7280;">120 tons</td>
+                        <td style="padding: 16px; color: #6b7280;">Warehouse C</td>
+                        <td style="padding: 16px;"><span class="grade-c">Grade C</span></td>
+                        <td style="padding: 16px; color: #6b7280;">2024-07-15</td>
+                        <td style="padding: 16px; color: #6b7280;">2024-09-15</td>
+                        <td style="padding: 16px;"><span class="status-low-stock">Low Stock</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Add to Inventory Modal -->
+<div id="addInventoryModal" class="modal-overlay">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3 style="margin: 0; color: #111827; font-size: 1.25rem;">Add to Inventory</h3>
+            <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.875rem;">Add new harvested crops to inventory</p>
+            <button onclick="hideAddModal()" style="position: absolute; top: 16px; right: 20px; background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer; line-height: 1;">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form class="form-grid">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Crop Type</label>
+                        <select class="form-select" required>
+                            <option value="">Select crop</option>
+                            <option value="corn">Corn</option>
+                            <option value="wheat">Wheat</option>
+                            <option value="soybeans">Soybeans</option>
+                            <option value="rice">Rice</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Storage Location</label>
+                        <select class="form-select" required>
+                            <option value="">Select location</option>
+                            <option value="warehouse-a">Warehouse A</option>
+                            <option value="warehouse-b">Warehouse B</option>
+                            <option value="warehouse-c">Warehouse C</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Quantity (tons)</label>
+                        <input type="number" class="form-input" placeholder="100" min="0" step="0.1" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Quality Grade</label>
+                        <select class="form-select" required>
+                            <option value="">Select grade</option>
+                            <option value="A">Grade A - Premium</option>
+                            <option value="B">Grade B - Good</option>
+                            <option value="C">Grade C - Average</option>
+                            <option value="D">Grade D - Below Average</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Expiry Date</label>
+                    <input type="date" class="form-input" required>
+                </div>
+
+                <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px;">
+                    <button type="button" class="btn btn-secondary" onclick="hideAddModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Add to Inventory</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Remove from Inventory Modal -->
+<div id="removeInventoryModal" class="modal-overlay">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h3 style="margin: 0; color: #111827; font-size: 1.25rem;">Remove from Inventory</h3>
+            <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.875rem;">Remove sold or used crops from inventory</p>
+            <button onclick="hideRemoveModal()" style="position: absolute; top: 16px; right: 20px; background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer; line-height: 1;">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form class="form-grid">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Crop Type</label>
+                        <select class="form-select" required>
+                            <option value="">Select crop</option>
+                            <option value="corn">Corn (5200 tons available)</option>
+                            <option value="wheat">Wheat (3800 tons available)</option>
+                            <option value="soybeans">Soybeans (450 tons available)</option>
+                            <option value="rice">Rice (120 tons available)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Storage Location</label>
+                        <select class="form-select" required>
+                            <option value="">Select location</option>
+                            <option value="warehouse-a">Warehouse A</option>
+                            <option value="warehouse-b">Warehouse B</option>
+                            <option value="warehouse-c">Warehouse C</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Quantity (tons)</label>
+                    <input type="number" class="form-input" placeholder="100" min="0" step="0.1" required>
+                </div>
+
+                <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px;">
+                    <button type="button" class="btn btn-secondary" onclick="hideRemoveModal()">Cancel</button>
+                    <button type="submit" class="btn btn-danger">Remove from Inventory</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+// Modal functions
+function showAddModal() {
+    document.getElementById('addInventoryModal').style.display = 'flex';
+}
+
+function hideAddModal() {
+    document.getElementById('addInventoryModal').style.display = 'none';
+}
+
+function showRemoveModal() {
+    document.getElementById('removeInventoryModal').style.display = 'flex';
+}
+
+function hideRemoveModal() {
+    document.getElementById('removeInventoryModal').style.display = 'none';
+}
+
+// Close modals when clicking outside
+document.getElementById('addInventoryModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        hideAddModal();
+    }
+});
+
+document.getElementById('removeInventoryModal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        hideRemoveModal();
+    }
+});
+
+// Handle form submissions
+document.querySelector('#addInventoryModal form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    // Get form data
+    const formData = new FormData(this);
+    const data = Object.fromEntries(formData.entries());
+    
+    console.log('Add inventory data:', data);
+    alert('Inventory added successfully! (In production, this would save to database)');
+    hideAddModal();
+    
+    // In production, you would send this data to your Django backend
+    // and then refresh the inventory table
+});
+
+document.querySelector('#removeInventoryModal form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    // Get form data
+    const formData = new FormData(this);
+    const data = Object.fromEntries(formData.entries());
+    
+    console.log('Remove inventory data:', data);
+    alert('Inventory removed successfully! (In production, this would save to database)');
+    hideRemoveModal();
+    
+    // In production, you would send this data to your Django backend
+    // and then refresh the inventory table
+});
+
+// Keyboard navigation
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        hideAddModal();
+        hideRemoveModal();
+    }
+});
+
+// Set default expiry date (6 months from now)
+document.addEventListener('DOMContentLoaded', function() {
+    const expiryInput = document.querySelector('#addInventoryModal input[type="date"]');
+    if (expiryInput) {
+        const sixMonthsFromNow = new Date();
+        sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+        expiryInput.value = sixMonthsFromNow.toISOString().split('T')[0];
+    }
+});
+</script>
+{% endblock %}
