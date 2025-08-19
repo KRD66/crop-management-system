@@ -1,4 +1,4 @@
-# monitoring/forms.py
+
 from django import forms
 from django.utils import timezone
 from datetime import date, timedelta
@@ -124,7 +124,6 @@ class RemoveInventoryForm(forms.Form):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Populate crop choices with available quantities
         crops_with_stock = Inventory.objects.values('crop').distinct()
         crop_choices = []
         
@@ -146,7 +145,7 @@ class RemoveInventoryForm(forms.Form):
         quantity_requested = cleaned_data.get('quantity_tons')
         
         if crop and storage_location and quantity_requested:
-            # Check if requested quantity is available
+    
             available_inventory = Inventory.objects.filter(
                 crop=crop,
                 storage_location=storage_location

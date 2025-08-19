@@ -1,4 +1,4 @@
-# monitoring/admin.py - Fixed admin configuration
+
 from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
@@ -281,7 +281,6 @@ class InventoryAdmin(admin.ModelAdmin):
     status_display.short_description = 'Status'
 
 
-# Customize the admin site header
 admin.site.site_header = "Harvest Monitoring System Admin"
 admin.site.site_title = "HMS Admin"
 admin.site.index_title = "Welcome to Harvest Monitoring System Administration"

@@ -4,7 +4,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Sum, Count, Avg, Q, F
 from django.db.models.functions import Extract
 from datetime import datetime, timedelta, date
-from .models import Farm, HarvestRecord, Inventory, Crop, Field
+from .models import Farm, HarvestRecord, Inventory, Crop, Field, UserProfile
 from collections import defaultdict
 from decimal import Decimal
 import json
@@ -16,6 +16,27 @@ from django.db import transaction
 from django.utils import timezone
 from .forms import AddInventoryForm, RemoveInventoryForm, InventoryFilterForm, BulkInventoryUpdateForm
 from django.db import models, transaction
+from django.shortcuts import render
+from django.http import JsonResponse, HttpResponse, Http404
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.csrf import csrf_exempt
+from django.db.models import Sum, Count, Avg, Q
+from django.utils import timezone
+from datetime import datetime, timedelta
+from decimal import Decimal
+import json
+import csv
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment
+from io import BytesIO
+
+
+
 
 
 
@@ -184,7 +205,7 @@ def dashboard(request):
     }
     
     return render(request, 'monitoring/dashboard.html', context)
-# Fixed monitoring/views.py - farm_management function
+# monitoring/views.py - farm_management function
 def farm_management(request):
     farms = Farm.objects.filter(is_active=True).prefetch_related('field_set__crop')
 
@@ -1108,13 +1129,13 @@ def export_inventory(request):
         ])
     
     return response
-@login_required
+
 def reports(request):
     """
     Reports view - generate various reports
     """
     # Generate summary statistics for reports
-    current_month = datetime.now().replace(day=1)
+    current_month = timezone.now().replace(day=1)
     last_month = (current_month - timedelta(days=1)).replace(day=1)
     
     current_month_harvests = HarvestRecord.objects.filter(
@@ -1140,6 +1161,439 @@ def reports(request):
     }
     
     return render(request, 'monitoring/reports.html', context)
+
+
+@login_required
+def generate_report(request):
+    """
+    Generate custom reports based on user input
+    """
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Invalid request method'})
+    
+    try:
+        report_type = request.POST.get('report_type')
+        from_date = request.POST.get('from_date')
+        to_date = request.POST.get('to_date')
+        export_format = request.POST.get('export_format')
+        
+        if not all([report_type, from_date, to_date, export_format]):
+            return JsonResponse({'success': False, 'error': 'Missing required fields'})
+        
+        # Convert string dates to datetime objects
+        from_date = datetime.strptime(from_date, '%Y-%m-%d').date()
+        to_date = datetime.strptime(to_date, '%Y-%m-%d').date()
+        
+        # Validate date range
+        if from_date > to_date:
+            return JsonResponse({'success': False, 'error': 'Invalid date range'})
+        
+        # Generate report based on type
+        if report_type == 'monthly_harvest_summary':
+            return generate_harvest_summary_report(from_date, to_date, export_format)
+        elif report_type == 'yield_performance_report':
+            return generate_yield_performance_report(from_date, to_date, export_format)
+        elif report_type == 'inventory_status_report':
+            return generate_inventory_status_report(from_date, to_date, export_format)
+        elif report_type == 'farm_productivity_analysis':
+            return generate_farm_productivity_report(from_date, to_date, export_format)
+        else:
+            return JsonResponse({'success': False, 'error': 'Invalid report type'})
+            
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+def generate_harvest_summary_report(from_date, to_date, export_format):
+    """
+    Generate monthly harvest summary report
+    """
+    # Get harvest data for the date range
+    harvests = HarvestRecord.objects.filter(
+        harvest_date__range=[from_date, to_date]
+    ).select_related('field', 'field__farm', 'field__crop', 'harvested_by')
+    
+    # Calculate summary statistics
+    total_quantity = harvests.aggregate(total=Sum('quantity_tons'))['total'] or Decimal('0')
+    total_harvests = harvests.count()
+    avg_quality = harvests.aggregate(avg=Avg('quality_score'))['avg'] or 0
+    
+    # Group by farm
+    farm_data = {}
+    for harvest in harvests:
+        farm_name = harvest.field.farm.name
+        if farm_name not in farm_data:
+            farm_data[farm_name] = {
+                'total_quantity': Decimal('0'),
+                'harvest_count': 0,
+                'fields': set(),
+                'crops': set()
+            }
+        farm_data[farm_name]['total_quantity'] += harvest.quantity_tons
+        farm_data[farm_name]['harvest_count'] += 1
+        farm_data[farm_name]['fields'].add(harvest.field.name)
+        farm_data[farm_name]['crops'].add(harvest.field.crop.name)
+    
+    # Generate report based on format
+    if export_format == 'pdf':
+        return generate_pdf_harvest_report(farm_data, total_quantity, total_harvests, from_date, to_date)
+    elif export_format == 'excel':
+        return generate_excel_harvest_report(farm_data, harvests, from_date, to_date)
+    elif export_format == 'csv':
+        return generate_csv_harvest_report(harvests, from_date, to_date)
+
+
+def generate_pdf_harvest_report(farm_data, total_quantity, total_harvests, from_date, to_date):
+    """
+    Generate PDF harvest summary report
+    """
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Title
+    title = Paragraph(f"Harvest Summary Report", styles['Title'])
+    story.append(title)
+    story.append(Spacer(1, 20))
+    
+    # Date range
+    date_range = Paragraph(f"Period: {from_date.strftime('%B %d, %Y')} - {to_date.strftime('%B %d, %Y')}", styles['Normal'])
+    story.append(date_range)
+    story.append(Spacer(1, 20))
+    
+    # Summary statistics
+    summary_data = [
+        ['Metric', 'Value'],
+        ['Total Harvests', str(total_harvests)],
+        ['Total Quantity', f"{total_quantity} tons"],
+        ['Number of Farms', str(len(farm_data))],
+    ]
+    
+    summary_table = Table(summary_data)
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 14),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    
+    story.append(summary_table)
+    story.append(Spacer(1, 30))
+    
+    # Farm breakdown
+    if farm_data:
+        farm_title = Paragraph("Farm Breakdown", styles['Heading2'])
+        story.append(farm_title)
+        story.append(Spacer(1, 12))
+        
+        farm_table_data = [['Farm Name', 'Total Quantity (tons)', 'Harvest Count', 'Fields', 'Crops']]
+        
+        for farm_name, data in farm_data.items():
+            farm_table_data.append([
+                farm_name,
+                str(data['total_quantity']),
+                str(data['harvest_count']),
+                str(len(data['fields'])),
+                str(len(data['crops']))
+            ])
+        
+        farm_table = Table(farm_table_data)
+        farm_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        
+        story.append(farm_table)
+    
+    # Build PDF
+    doc.build(story)
+    buffer.seek(0)
+    
+    response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="harvest_summary_{from_date}_{to_date}.pdf"'
+    return response
+
+
+def generate_excel_harvest_report(farm_data, harvests, from_date, to_date):
+    """
+    Generate Excel harvest summary report
+    """
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Harvest Summary"
+    
+    # Header style
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    center_alignment = Alignment(horizontal="center")
+    
+    # Title and date range
+    ws['A1'] = "Harvest Summary Report"
+    ws['A1'].font = Font(bold=True, size=16)
+    ws['A2'] = f"Period: {from_date.strftime('%B %d, %Y')} - {to_date.strftime('%B %d, %Y')}"
+    
+    # Farm summary headers
+    headers = ['Farm Name', 'Total Quantity (tons)', 'Harvest Count', 'Number of Fields', 'Number of Crops']
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=4, column=col)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_alignment
+    
+    # Farm data
+    row = 5
+    for farm_name, data in farm_data.items():
+        ws.cell(row=row, column=1).value = farm_name
+        ws.cell(row=row, column=2).value = float(data['total_quantity'])
+        ws.cell(row=row, column=3).value = data['harvest_count']
+        ws.cell(row=row, column=4).value = len(data['fields'])
+        ws.cell(row=row, column=5).value = len(data['crops'])
+        row += 1
+    
+    # Individual harvests sheet
+    ws2 = wb.create_sheet("Individual Harvests")
+    harvest_headers = ['Date', 'Farm', 'Field', 'Crop', 'Quantity (tons)', 'Quality Grade', 'Harvested By']
+    
+    for col, header in enumerate(harvest_headers, 1):
+        cell = ws2.cell(row=1, column=col)
+        cell.value = header
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_alignment
+    
+    row = 2
+    for harvest in harvests:
+        ws2.cell(row=row, column=1).value = harvest.harvest_date.strftime('%Y-%m-%d')
+        ws2.cell(row=row, column=2).value = harvest.field.farm.name
+        ws2.cell(row=row, column=3).value = harvest.field.name
+        ws2.cell(row=row, column=4).value = harvest.field.crop.name
+        ws2.cell(row=row, column=5).value = float(harvest.quantity_tons)
+        ws2.cell(row=row, column=6).value = harvest.quality_grade
+        ws2.cell(row=row, column=7).value = harvest.harvested_by.get_full_name()
+        row += 1
+    
+    # Auto-adjust column widths
+    for ws in wb.worksheets:
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
+    
+    # Save to buffer
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    
+    response = HttpResponse(buffer.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="harvest_summary_{from_date}_{to_date}.xlsx"'
+    return response
+
+
+def generate_csv_harvest_report(harvests, from_date, to_date):
+    """
+    Generate CSV harvest summary report
+    """
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="harvest_summary_{from_date}_{to_date}.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow(['Date', 'Farm', 'Field', 'Crop', 'Quantity (tons)', 'Quality Grade', 'Harvested By', 'Weather Conditions'])
+    
+    for harvest in harvests:
+        writer.writerow([
+            harvest.harvest_date.strftime('%Y-%m-%d'),
+            harvest.field.farm.name,
+            harvest.field.name,
+            harvest.field.crop.name,
+            harvest.quantity_tons,
+            harvest.quality_grade,
+            harvest.harvested_by.get_full_name(),
+            harvest.weather_conditions or 'N/A'
+        ])
+    
+    return response
+
+
+def generate_yield_performance_report(from_date, to_date, export_format):
+    """
+    Generate yield performance report comparing actual vs expected yields
+    """
+    # Get harvest data with field information
+    harvests = HarvestRecord.objects.filter(
+        harvest_date__range=[from_date, to_date]
+    ).select_related('field', 'field__farm', 'field__crop')
+    
+    # Calculate performance metrics
+    performance_data = []
+    for harvest in harvests:
+        expected_yield = harvest.field.expected_yield_total
+        actual_yield = harvest.quantity_tons
+        performance_percentage = (actual_yield / expected_yield * 100) if expected_yield > 0 else 0
+        
+        performance_data.append({
+            'farm': harvest.field.farm.name,
+            'field': harvest.field.name,
+            'crop': harvest.field.crop.name,
+            'expected_yield': expected_yield,
+            'actual_yield': actual_yield,
+            'performance_percentage': performance_percentage,
+            'harvest_date': harvest.harvest_date
+        })
+    
+    # Generate report based on format
+    if export_format == 'pdf':
+        return generate_pdf_yield_report(performance_data, from_date, to_date)
+    elif export_format == 'excel':
+        return generate_excel_yield_report(performance_data, from_date, to_date)
+    else:  # CSV
+        return generate_csv_yield_report(performance_data, from_date, to_date)
+
+
+def generate_inventory_status_report(from_date, to_date, export_format):
+    """
+    Generate inventory status report
+    """
+    # Get current inventory items
+    inventory_items = Inventory.objects.filter(
+        date_stored__range=[from_date, to_date]
+    ).select_related('crop', 'managed_by')
+    
+    # Calculate inventory metrics
+    total_value = sum(item.total_value or 0 for item in inventory_items)
+    total_quantity = sum(item.quantity_tons for item in inventory_items)
+    low_stock_items = [item for item in inventory_items if item.is_low_stock]
+    expired_items = [item for item in inventory_items if item.is_expired]
+    
+    # Generate report based on format
+    if export_format == 'csv':
+        return generate_csv_inventory_report(inventory_items, from_date, to_date)
+    # Add PDF and Excel generation as needed
+    
+    return JsonResponse({'success': True, 'message': 'Report generated successfully'})
+
+
+def generate_csv_inventory_report(inventory_items, from_date, to_date):
+    """
+    Generate CSV inventory status report
+    """
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="inventory_status_{from_date}_{to_date}.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow([
+        'Crop', 'Quantity (tons)', 'Storage Location', 'Storage Condition', 
+        'Quality Grade', 'Date Stored', 'Expiry Date', 'Days in Storage', 
+        'Unit Price', 'Total Value', 'Status'
+    ])
+    
+    for item in inventory_items:
+        status = []
+        if item.is_reserved:
+            status.append('Reserved')
+        if item.is_expired:
+            status.append('Expired')
+        if item.is_low_stock:
+            status.append('Low Stock')
+        if not status:
+            status.append('Good')
+            
+        writer.writerow([
+            item.crop.name,
+            item.quantity_tons,
+            item.storage_location,
+            item.get_storage_condition_display(),
+            item.get_quality_grade_display(),
+            item.date_stored.strftime('%Y-%m-%d'),
+            item.expiry_date.strftime('%Y-%m-%d') if item.expiry_date else 'N/A',
+            item.days_in_storage,
+            item.unit_price or 'N/A',
+            item.total_value or 'N/A',
+            ', '.join(status)
+        ])
+    
+    return response
+
+
+def generate_farm_productivity_report(from_date, to_date, export_format):
+    """
+    Generate farm productivity analysis report
+    """
+    farms = Farm.objects.all()
+    
+    productivity_data = []
+    for farm in farms:
+        total_harvested = farm.field_set.filter(
+            harvestrecord__harvest_date__range=[from_date, to_date]
+        ).aggregate(total=Sum('harvestrecord__quantity_tons'))['total'] or Decimal('0')
+        
+        efficiency = farm.efficiency_percentage
+        total_fields = farm.field_set.count()
+        active_fields = farm.field_set.filter(is_active=True).count()
+        
+        productivity_data.append({
+            'farm_name': farm.name,
+            'location': farm.location,
+            'total_area': farm.total_area_hectares,
+            'total_harvested': total_harvested,
+            'efficiency_percentage': efficiency,
+            'total_fields': total_fields,
+            'active_fields': active_fields,
+            'primary_crop': farm.primary_crop
+        })
+    
+    # Generate CSV format (add PDF/Excel as needed)
+    if export_format == 'csv':
+        return generate_csv_productivity_report(productivity_data, from_date, to_date)
+    
+    return JsonResponse({'success': True, 'message': 'Report generated successfully'})
+
+
+def generate_csv_productivity_report(productivity_data, from_date, to_date):
+    """
+    Generate CSV productivity report
+    """
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="farm_productivity_{from_date}_{to_date}.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow([
+        'Farm Name', 'Location', 'Total Area (hectares)', 'Total Harvested (tons)',
+        'Efficiency (%)', 'Total Fields', 'Active Fields', 'Primary Crop'
+    ])
+    
+    for data in productivity_data:
+        writer.writerow([
+            data['farm_name'],
+            data['location'],
+            data['total_area'],
+            data['total_harvested'],
+            round(data['efficiency_percentage'], 2),
+            data['total_fields'],
+            data['active_fields'],
+            data['primary_crop']
+        ])
+    
+    return response
+
 
 
 @login_required

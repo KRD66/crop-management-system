@@ -1,4 +1,4 @@
-# monitoring/models.py - Complete Farm model with all required fields
+
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -251,7 +251,6 @@ class Field(models.Model):
     class Meta:
         verbose_name = "Field"
         verbose_name_plural = "Fields"
-        # Fixed ordering - now references the correct field path
         ordering = ['farm__name', 'name']
         unique_together = ['farm', 'name']
     
@@ -521,7 +520,6 @@ class Inventory(models.Model):
             raise ValidationError("Quantity cannot be negative.")
 
 
-# Signal handlers for UserProfile
 @receiver(post_save, sender=User)
 def create_user_profile(sender, instance, created, **kwargs):
     """Automatically create UserProfile when User is created"""
