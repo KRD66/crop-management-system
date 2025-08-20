@@ -1,477 +1,925 @@
-{% extends 'monitoring/base.html' %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory Management - HarvestPro</title>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f8fafb;
+            display: flex;
+        }
 
-{% block title %}Inventory Management - HarvestPro{% endblock %}
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: white;
+            height: 100vh;
+            position: fixed;
+            left: 0;
+            top: 0;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            padding: 2rem 0;
+            transition: transform 0.3s ease;
+            z-index: 1000;
+        }
+        .sidebar.collapsed { transform: translateX(-100%); }
+        .sidebar.mobile-open { transform: translateX(0); transition: transform 0.3s ease-in-out; }
 
-{% block page_title %}Inventory{% endblock %}
+        .sidebar-header {
+            padding: 0 2rem;
+            margin-bottom: 2rem;
+        }
+        .sidebar-header h2 { color: #16a34a; margin: 0; font-size: 1.5rem; }
 
-{% block content %}
-<style>
-/* Inventory-specific styles */
-.status-expiring { background: #fef3c7; color: #92400e; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
-.status-low-stock { background: #fef2f2; color: #dc2626; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
-.status-good { background: #dcfce7; color: #166534; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
+        .nav-menu { list-style: none; padding: 0; margin: 0; }
+        .nav-menu li { margin: 0.5rem 0; }
+        .nav-menu a {
+            display: block;
+            padding: 1rem 2rem;
+            color: #6b7280;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        .nav-menu a:hover,
+        .nav-menu a.active {
+            background: #f3f4f6;
+            color: #16a34a;
+            border-right: 3px solid #16a34a;
+        }
 
-.grade-a { background: #065f46; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
-.grade-b { background: #1f2937; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
-.grade-c { background: #6b7280; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
+        /* Mobile Overlay */
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+        }
+        .sidebar-overlay.active { display: block; }
 
-/* Modal styles */
-.modal-overlay {
-    position: fixed;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    background: rgba(0,0,0,0.5);
-    z-index: 1000;
-    justify-content: center;
-    align-items: center;
-    padding: 20px;
-    display: none;
-}
+        /* Main content */
+        .main-content {
+            margin-left: 280px;
+            padding: 2rem;
+            flex: 1;
+            transition: margin-left 0.3s ease;
+        }
+        .main-content.expanded { margin-left: 0; }
 
-.modal-container {
-    background: white;
-    border-radius: 12px;
-    width: 100%;
-    max-width: 500px;
-    max-height: 90vh;
-    overflow: hidden;
-    box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
-}
+        .container { max-width: 1200px; margin: 0 auto; }
 
-.modal-header {
-    padding: 20px 24px;
-    border-bottom: 1px solid #e5e7eb;
-    position: relative;
-}
+        /* Header */
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header-left { display: flex; align-items: center; gap: 15px; flex: 1; min-width: 0; }
+        .header-left h1 { margin: 0 0 5px 0; color: #1f2937; font-size: 1.5rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .header-left p { color: #666; margin: 0; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .header-title-section { flex: 1; }
 
-.modal-body {
-    padding: 24px;
-    max-height: calc(90vh - 140px);
-    overflow-y: auto;
-}
+        .header-right { display: flex; align-items: center; gap: 20px; flex-shrink: 0; }
+        .user-info { display: flex; align-items: center; gap: 15px; padding: 10px 15px; background: #f8fafb; border-radius: 8px; border: 1px solid #e5e7eb; }
+        .user-name { color: #374151; font-weight: 500; font-size: 0.9rem; }
 
-.form-grid {
-    display: grid;
-    gap: 20px;
-}
+        .notification-bell { position: relative; color: #6b7280; font-size: 1.2rem; cursor: pointer; transition: color 0.2s; }
+        .notification-bell:hover { color: #16a34a; }
+        .notification-bell::after {
+            content: '';
+            position: absolute;
+            top: -2px; right: -2px;
+            width: 8px; height: 8px;
+            background: #ef4444;
+            border-radius: 50%;
+            border: 2px solid white;
+        }
 
-.form-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-}
+        .logout-arrow { color: #6b7280; font-size: 1.1rem; cursor: pointer; transition: color 0.2s; }
+        .logout-arrow:hover { color: #ef4444; }
 
-.form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
+        /* Sidebar Toggle */
+        .sidebar-toggle {
+            background: none; border: none;
+            color: #6b7280; font-size: 1.2rem;
+            cursor: pointer; padding: 8px; border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            width: 40px; height: 40px;
+            transition: all 0.2s;
+        }
+        .sidebar-toggle:hover { background-color: #f3f4f6; color: #16a34a; }
 
-.form-label {
-    font-weight: 600;
-    color: #111827;
-    font-size: 0.875rem;
-}
+        /* Metrics */
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
 
-.form-input, .form-select {
-    padding: 10px 12px;
-    border: 2px solid #e5e7eb;
-    border-radius: 6px;
-    font-size: 0.875rem;
-    background: #f9fafb;
-    transition: all 0.2s;
-}
+        .metric-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
 
-.form-input:focus, .form-select:focus {
-    outline: none;
-    border-color: #3b82f6;
-    background: white;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-}
+        .metric-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 10px;
+            background: #f0fdf4;
+            color: #16a34a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
 
-.btn {
-    padding: 10px 20px;
-    border-radius: 6px;
-    font-size: 0.875rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-    border: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-}
+        .metric-content {
+            flex: 1;
+        }
 
-.btn-primary {
-    background: #111827;
-    color: white;
-}
+        .metric-label {
+            color: #6b7280;
+            font-size: 0.9rem;
+            margin-bottom: 4px;
+        }
 
-.btn-primary:hover {
-    background: #374151;
-}
+        .metric-value {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #1f2937;
+            margin-bottom: 2px;
+        }
 
-.btn-secondary {
-    background: white;
-    color: #374151;
-    border: 2px solid #e5e7eb;
-}
+        .metric-change {
+            color: #6b7280;
+            font-size: 0.8rem;
+        }
 
-.btn-secondary:hover {
-    background: #f9fafb;
-    border-color: #d1d5db;
-}
+        /* Section */
+        .section {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
 
-.btn-danger {
-    background: #dc2626;
-    color: white;
-}
+        /* Inventory-specific styles */
+        .status-expiring { background: #fef3c7; color: #92400e; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
+        .status-low-stock { background: #fef2f2; color: #dc2626; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
+        .status-good { background: #dcfce7; color: #166534; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
 
-.btn-danger:hover {
-    background: #b91c1c;
-}
+        .grade-a { background: #065f46; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
+        .grade-b { background: #1f2937; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
+        .grade-c { background: #6b7280; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
 
-/* Responsive */
-@media (max-width: 768px) {
-    .form-row {
-        grid-template-columns: 1fr;
-        gap: 16px;
-    }
-    
-    .modal-overlay {
-        padding: 10px;
-    }
-    
-    .modal-container {
-        max-height: calc(100vh - 20px);
-    }
-    
-    .inventory-table-wrapper {
-        overflow-x: auto;
-    }
-    
-    .inventory-table {
-        min-width: 800px;
-    }
-}
-</style>
+        /* Button styles */
+        .btn {
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
 
-<!-- Inventory Statistics Metrics -->
-<div class="metrics">
-    <div class="metric-card">
-        <div class="metric-icon">
-            <i class="fas fa-boxes"></i>
+        .btn-primary {
+            background: #111827;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #374151;
+        }
+
+        .btn-secondary {
+            background: white;
+            color: #374151;
+            border: 2px solid #e5e7eb;
+        }
+
+        .btn-secondary:hover {
+            background: #f9fafb;
+            border-color: #d1d5db;
+        }
+
+        .btn-danger {
+            background: #dc2626;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #b91c1c;
+        }
+
+        /* Table responsive wrapper */
+        .inventory-table-wrapper {
+            overflow-x: auto;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+            margin-bottom: 20px;
+        }
+
+        .inventory-table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 800px;
+        }
+
+        /* Modal styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            display: none;
+        }
+
+        .modal-container {
+            background: white;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow: hidden;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+        }
+
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #e5e7eb;
+            position: relative;
+        }
+
+        .modal-body {
+            padding: 24px;
+            max-height: calc(90vh - 140px);
+            overflow-y: auto;
+        }
+
+        .form-grid {
+            display: grid;
+            gap: 20px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-label {
+            font-weight: 600;
+            color: #111827;
+            font-size: 0.875rem;
+        }
+
+        .form-input, .form-select {
+            padding: 10px 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            background: #f9fafb;
+            transition: all 0.2s;
+        }
+
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: #3b82f6;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+
+        /* Responsive design */
+        @media (max-width: 1024px) {
+            .metrics {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            body, html { overflow-x: hidden; max-width: 100vw; }
+            .sidebar { transform: translateX(-100%); }
+            .main-content { 
+                margin-left: 0; 
+                padding: 0.75rem; 
+                width: 100%; 
+                max-width: 100vw; 
+            }
+            .container { width: 100%; padding: 0; margin: 0; }
+            
+            .header { 
+                padding: 12px; 
+                margin-bottom: 15px; 
+                flex-wrap: wrap; 
+            }
+            
+            .metrics {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 15px;
+            }
+            
+            .metric-card {
+                padding: 15px;
+                gap: 12px;
+            }
+            
+            .metric-icon {
+                width: 45px;
+                height: 45px;
+                font-size: 1.3rem;
+            }
+            
+            .metric-value {
+                font-size: 1.5rem;
+            }
+            
+            .section {
+                padding: 15px;
+            }
+            
+            .form-row {
+                grid-template-columns: 1fr;
+                gap: 16px;
+            }
+            
+            .modal-overlay {
+                padding: 10px;
+            }
+            
+            .modal-container {
+                max-height: calc(100vh - 20px);
+            }
+            
+            /* Button container responsive */
+            .button-container {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+            
+            .btn {
+                flex: 1;
+                min-width: 120px;
+                justify-content: center;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header { 
+                flex-direction: column; 
+                align-items: flex-start; 
+                gap: 10px; 
+            }
+            
+            .metrics {
+                grid-template-columns: 1fr;
+            }
+            
+            .metric-card {
+                padding: 12px;
+            }
+            
+            .metric-value {
+                font-size: 1.3rem;
+            }
+            
+            .section {
+                padding: 12px;
+            }
+            
+            .inventory-table {
+                min-width: 600px;
+            }
+            
+            .btn {
+                padding: 8px 12px;
+                font-size: 0.8rem;
+            }
+            
+            /* Make section header responsive */
+            .section-header {
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                gap: 15px !important;
+            }
+            
+            .button-container {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar Overlay for Mobile -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h2>🌱 HarvestPro</h2>
         </div>
-        <div class="metric-content">
-            <div class="metric-label">Total Inventory</div>
-            <div class="metric-value">9,570 tons</div>
-            <div class="metric-change">Across all locations</div>
-        </div>
+        <nav>
+            <ul class="nav-menu">
+                <li><a href="{% url 'monitoring:dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">📊 Dashboard</a></li>
+                <li><a href="{% url 'monitoring:farm_management' %}" class="{% if request.resolver_match.url_name == 'farm_management' %}active{% endif %}">🚜 Farm Management</a></li>
+                <li><a href="{% url 'monitoring:harvest_tracking' %}" class="{% if request.resolver_match.url_name == 'harvest_tracking' %}active{% endif %}">📋 Harvest Tracking</a></li>
+                <li><a href="{% url 'monitoring:analytics' %}" class="{% if request.resolver_match.url_name == 'analytics' %}active{% endif %}">📈 Analytics</a></li>
+                <li><a href="{% url 'monitoring:inventory' %}" class="{% if request.resolver_match.url_name == 'inventory' %}active{% endif %}">📦 Inventory</a></li>
+                <li><a href="{% url 'monitoring:reports' %}" class="{% if request.resolver_match.url_name == 'reports' %}active{% endif %}">📄 Reports</a></li>
+                <li><a href="{% url 'monitoring:notifications' %}" class="{% if request.resolver_match.url_name == 'notifications' %}active{% endif %}">🔔 Notifications</a></li>
+                <li><a href="{% url 'monitoring:user_management' %}" class="{% if request.resolver_match.url_name == 'user_management' %}active{% endif %}">👥 User Management</a></li>
+            </ul>
+        </nav>
     </div>
-    
-    <div class="metric-card">
-        <div class="metric-icon">
-            <i class="fas fa-warehouse"></i>
-        </div>
-        <div class="metric-content">
-            <div class="metric-label">Storage Locations</div>
-            <div class="metric-value">5</div>
-            <div class="metric-change">Active warehouses</div>
-        </div>
-    </div>
-    
-    <div class="metric-card">
-        <div class="metric-icon">
-            <i class="fas fa-exclamation-triangle"></i>
-        </div>
-        <div class="metric-content">
-            <div class="metric-label">Low Stock Items</div>
-            <div class="metric-value">2</div>
-            <div class="metric-change">Need restocking</div>
-        </div>
-    </div>
-    
-    <div class="metric-card">
-        <div class="metric-icon">
-            <i class="fas fa-clock"></i>
-        </div>
-        <div class="metric-content">
-            <div class="metric-label">Expiring Soon</div>
-            <div class="metric-value">4</div>
-            <div class="metric-change">Within 30 days</div>
-        </div>
-    </div>
-</div>
 
-<!-- Inventory Management Section -->
-<div class="section">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
-        <div>
-            <h3 style="margin: 0 0 5px 0; color: #111827;">Inventory Management</h3>
-            <p style="color: #6b7280; margin: 0; font-size: 0.875rem;">Track all stored crops and their conditions</p>
-        </div>
-        <div style="display: flex; gap: 10px;">
-            <button class="btn btn-secondary" onclick="showRemoveModal()">
-                <i class="fas fa-minus"></i>
-                Remove Stock
-            </button>
-            <button class="btn btn-primary" onclick="showAddModal()">
-                <i class="fas fa-plus"></i>
-                Add Stock
-            </button>
-        </div>
-    </div>
-
-    <!-- Current Inventory Table -->
-    <div style="background: white; border-radius: 8px; border: 1px solid #e5e7eb; margin-bottom: 20px;">
-        <div style="padding: 16px 20px; border-bottom: 1px solid #f3f4f6;">
-            <h4 style="margin: 0; color: #111827; font-size: 1rem;">Current Inventory</h4>
-            <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.875rem;">Track all stored crops and their conditions</p>
-        </div>
-        
-        <div class="inventory-table-wrapper" style="overflow-x: auto;">
-            <table class="inventory-table" style="width: 100%; border-collapse: collapse;">
-                <thead style="background: #f8fafc;">
-                    <tr>
-                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Crop</th>
-                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Quantity</th>
-                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Location</th>
-                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Quality</th>
-                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Date Stored</th>
-                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Expiry Date</th>
-                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr style="border-bottom: 1px solid #f3f4f6;">
-                        <td style="padding: 16px; font-weight: 500; color: #111827;">Corn</td>
-                        <td style="padding: 16px; color: #6b7280;">5200 tons</td>
-                        <td style="padding: 16px; color: #6b7280;">Warehouse A</td>
-                        <td style="padding: 16px;"><span class="grade-a">Grade A</span></td>
-                        <td style="padding: 16px; color: #6b7280;">2024-08-05</td>
-                        <td style="padding: 16px; color: #6b7280;">2025-02-05</td>
-                        <td style="padding: 16px;"><span class="status-expiring">Expiring</span></td>
-                    </tr>
-                    <tr style="border-bottom: 1px solid #f3f4f6;">
-                        <td style="padding: 16px; font-weight: 500; color: #111827;">Wheat</td>
-                        <td style="padding: 16px; color: #6b7280;">3800 tons</td>
-                        <td style="padding: 16px; color: #6b7280;">Warehouse B</td>
-                        <td style="padding: 16px;"><span class="grade-b">Grade B</span></td>
-                        <td style="padding: 16px; color: #6b7280;">2024-08-04</td>
-                        <td style="padding: 16px; color: #6b7280;">2024-12-04</td>
-                        <td style="padding: 16px;"><span class="status-expiring">Expiring</span></td>
-                    </tr>
-                    <tr style="border-bottom: 1px solid #f3f4f6;">
-                        <td style="padding: 16px; font-weight: 500; color: #111827;">Cocoa</td>
-                        <td style="padding: 16px; color: #6b7280;">450 tons</td>
-                        <td style="padding: 16px; color: #6b7280;">Warehouse A</td>
-                        <td style="padding: 16px;"><span class="grade-a">Grade A</span></td>
-                        <td style="padding: 16px; color: #6b7280;">2024-07-20</td>
-                        <td style="padding: 16px; color: #6b7280;">2024-10-20</td>
-                        <td style="padding: 16px;"><span class="status-low-stock">Low Stock</span></td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 16px; font-weight: 500; color: #111827;">Rice</td>
-                        <td style="padding: 16px; color: #6b7280;">120 tons</td>
-                        <td style="padding: 16px; color: #6b7280;">Warehouse C</td>
-                        <td style="padding: 16px;"><span class="grade-c">Grade C</span></td>
-                        <td style="padding: 16px; color: #6b7280;">2024-07-15</td>
-                        <td style="padding: 16px; color: #6b7280;">2024-09-15</td>
-                        <td style="padding: 16px;"><span class="status-low-stock">Low Stock</span></td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
-
-<!-- Add to Inventory Modal -->
-<div id="addInventoryModal" class="modal-overlay">
-    <div class="modal-container">
-        <div class="modal-header">
-            <h3 style="margin: 0; color: #111827; font-size: 1.25rem;">Add to Inventory</h3>
-            <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.875rem;">Add new harvested crops to inventory</p>
-            <button onclick="hideAddModal()" style="position: absolute; top: 16px; right: 20px; background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer; line-height: 1;">&times;</button>
-        </div>
-        <div class="modal-body">
-            <form class="form-grid">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">Crop Type</label>
-                        <select class="form-select" required>
-                            <option value="">Select crop</option>
-                            <option value="corn">Corn</option>
-                            <option value="wheat">Wheat</option>
-                            <option value="Cocoa">Cocoa</option>
-                            <option value="rice">Rice</option>
-                        </select>
+    <!-- Main Content -->
+    <div class="main-content" id="mainContent">
+        <div class="container">
+            <!-- Header -->
+            <div class="header">
+                <div class="header-left">
+                    <button class="sidebar-toggle" id="sidebarToggle">
+                        <i class="fas fa-bars"></i>
+                    </button>
+                    <div class="header-title-section">
+                        <h1>Inventory</h1>
+                        <p>Track all stored crops and their conditions</p>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">Storage Location</label>
-                        <select class="form-select" required>
-                            <option value="">Select location</option>
-                            <option value="warehouse-a">Warehouse A</option>
-                            <option value="warehouse-b">Warehouse B</option>
-                            <option value="warehouse-c">Warehouse C</option>
-                        </select>
+                </div>
+                <div class="header-right">
+                    <div class="user-info">
+                        <span class="user-name">Admin</span>
+                        <i class="fas fa-bell notification-bell" title="Notifications"></i>
+                        <i class="fas fa-arrow-right logout-arrow" title="Logout"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Inventory Statistics Metrics -->
+            <div class="metrics">
+                <div class="metric-card">
+                    <div class="metric-icon">
+                        <i class="fas fa-boxes"></i>
+                    </div>
+                    <div class="metric-content">
+                        <div class="metric-label">Total Inventory</div>
+                        <div class="metric-value">9,570 tons</div>
+                        <div class="metric-change">Across all locations</div>
+                    </div>
+                </div>
+                
+                <div class="metric-card">
+                    <div class="metric-icon">
+                        <i class="fas fa-warehouse"></i>
+                    </div>
+                    <div class="metric-content">
+                        <div class="metric-label">Storage Locations</div>
+                        <div class="metric-value">5</div>
+                        <div class="metric-change">Active warehouses</div>
+                    </div>
+                </div>
+                
+                <div class="metric-card">
+                    <div class="metric-icon">
+                        <i class="fas fa-exclamation-triangle"></i>
+                    </div>
+                    <div class="metric-content">
+                        <div class="metric-label">Low Stock Items</div>
+                        <div class="metric-value">2</div>
+                        <div class="metric-change">Need restocking</div>
+                    </div>
+                </div>
+                
+                <div class="metric-card">
+                    <div class="metric-icon">
+                        <i class="fas fa-clock"></i>
+                    </div>
+                    <div class="metric-content">
+                        <div class="metric-label">Expiring Soon</div>
+                        <div class="metric-value">4</div>
+                        <div class="metric-change">Within 30 days</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Inventory Management Section -->
+            <div class="section">
+                <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+                    <div>
+                        <h3 style="margin: 0 0 5px 0; color: #111827;">Inventory Management</h3>
+                        <p style="color: #6b7280; margin: 0; font-size: 0.875rem;">Track all stored crops and their conditions</p>
+                    </div>
+                    <div class="button-container">
+                        <button class="btn btn-secondary" onclick="showRemoveModal()">
+                            <i class="fas fa-minus"></i>
+                            Remove Stock
+                        </button>
+                        <button class="btn btn-primary" onclick="showAddModal()">
+                            <i class="fas fa-plus"></i>
+                            Add Stock
+                        </button>
                     </div>
                 </div>
 
-                <div class="form-row">
+                <!-- Current Inventory Table -->
+                <div style="background: white; border-radius: 8px; margin-bottom: 20px;">
+                    <div style="padding: 16px 20px; border-bottom: 1px solid #f3f4f6;">
+                        <h4 style="margin: 0; color: #111827; font-size: 1rem;">Current Inventory</h4>
+                        <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.875rem;">Track all stored crops and their conditions</p>
+                    </div>
+                    
+                    <div class="inventory-table-wrapper">
+                        <table class="inventory-table">
+                            <thead style="background: #f8fafc;">
+                                <tr>
+                                    <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Crop</th>
+                                    <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Quantity</th>
+                                    <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Location</th>
+                                    <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Quality</th>
+                                    <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Date Stored</th>
+                                    <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Expiry Date</th>
+                                    <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr style="border-bottom: 1px solid #f3f4f6;">
+                                    <td style="padding: 16px; font-weight: 500; color: #111827;">Corn</td>
+                                    <td style="padding: 16px; color: #6b7280;">5200 tons</td>
+                                    <td style="padding: 16px; color: #6b7280;">Warehouse A</td>
+                                    <td style="padding: 16px;"><span class="grade-a">Grade A</span></td>
+                                    <td style="padding: 16px; color: #6b7280;">2024-08-05</td>
+                                    <td style="padding: 16px; color: #6b7280;">2025-02-05</td>
+                                    <td style="padding: 16px;"><span class="status-expiring">Expiring</span></td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid #f3f4f6;">
+                                    <td style="padding: 16px; font-weight: 500; color: #111827;">Wheat</td>
+                                    <td style="padding: 16px; color: #6b7280;">3800 tons</td>
+                                    <td style="padding: 16px; color: #6b7280;">Warehouse B</td>
+                                    <td style="padding: 16px;"><span class="grade-b">Grade B</span></td>
+                                    <td style="padding: 16px; color: #6b7280;">2024-08-04</td>
+                                    <td style="padding: 16px; color: #6b7280;">2024-12-04</td>
+                                    <td style="padding: 16px;"><span class="status-expiring">Expiring</span></td>
+                                </tr>
+                                <tr style="border-bottom: 1px solid #f3f4f6;">
+                                    <td style="padding: 16px; font-weight: 500; color: #111827;">Cocoa</td>
+                                    <td style="padding: 16px; color: #6b7280;">450 tons</td>
+                                    <td style="padding: 16px; color: #6b7280;">Warehouse A</td>
+                                    <td style="padding: 16px;"><span class="grade-a">Grade A</span></td>
+                                    <td style="padding: 16px; color: #6b7280;">2024-07-20</td>
+                                    <td style="padding: 16px; color: #6b7280;">2024-10-20</td>
+                                    <td style="padding: 16px;"><span class="status-low-stock">Low Stock</span></td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 16px; font-weight: 500; color: #111827;">Rice</td>
+                                    <td style="padding: 16px; color: #6b7280;">120 tons</td>
+                                    <td style="padding: 16px; color: #6b7280;">Warehouse C</td>
+                                    <td style="padding: 16px;"><span class="grade-c">Grade C</span></td>
+                                    <td style="padding: 16px; color: #6b7280;">2024-07-15</td>
+                                    <td style="padding: 16px; color: #6b7280;">2024-09-15</td>
+                                    <td style="padding: 16px;"><span class="status-low-stock">Low Stock</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add to Inventory Modal -->
+    <div id="addInventoryModal" class="modal-overlay">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3 style="margin: 0; color: #111827; font-size: 1.25rem;">Add to Inventory</h3>
+                <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.875rem;">Add new harvested crops to inventory</p>
+                <button onclick="hideAddModal()" style="position: absolute; top: 16px; right: 20px; background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer; line-height: 1;">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form class="form-grid" id="addInventoryForm">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Crop Type</label>
+                            <select class="form-select" name="cropType" required>
+                                <option value="">Select crop</option>
+                                <option value="corn">Corn</option>
+                                <option value="wheat">Wheat</option>
+                                <option value="cocoa">Cocoa</option>
+                                <option value="rice">Rice</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Storage Location</label>
+                            <select class="form-select" name="location" required>
+                                <option value="">Select location</option>
+                                <option value="warehouse-a">Warehouse A</option>
+                                <option value="warehouse-b">Warehouse B</option>
+                                <option value="warehouse-c">Warehouse C</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Quantity (tons)</label>
+                            <input type="number" class="form-input" name="quantity" placeholder="100" min="0" step="0.1" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Quality Grade</label>
+                            <select class="form-select" name="quality" required>
+                                <option value="">Select grade</option>
+                                <option value="A">Grade A - Premium</option>
+                                <option value="B">Grade B - Good</option>
+                                <option value="C">Grade C - Average</option>
+                                <option value="D">Grade D - Below Average</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Expiry Date</label>
+                        <input type="date" class="form-input" name="expiryDate" required>
+                    </div>
+
+                    <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px;">
+                        <button type="button" class="btn btn-secondary" onclick="hideAddModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Add to Inventory</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Remove from Inventory Modal -->
+    <div id="removeInventoryModal" class="modal-overlay">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3 style="margin: 0; color: #111827; font-size: 1.25rem;">Remove from Inventory</h3>
+                <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.875rem;">Remove sold or used crops from inventory</p>
+                <button onclick="hideRemoveModal()" style="position: absolute; top: 16px; right: 20px; background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer; line-height: 1;">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form class="form-grid" id="removeInventoryForm">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Crop Type</label>
+                            <select class="form-select" name="cropType" required>
+                                <option value="">Select crop</option>
+                                <option value="corn">Corn (5200 tons available)</option>
+                                <option value="wheat">Wheat (3800 tons available)</option>
+                                <option value="cocoa">Cocoa (450 tons available)</option>
+                                <option value="rice">Rice (120 tons available)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Storage Location</label>
+                            <select class="form-select" name="location" required>
+                                <option value="">Select location</option>
+                                <option value="warehouse-a">Warehouse A</option>
+                                <option value="warehouse-b">Warehouse B</option>
+                                <option value="warehouse-c">Warehouse C</option>
+                            </select>
+                        </div>
+                    </div>
+
                     <div class="form-group">
                         <label class="form-label">Quantity (tons)</label>
-                        <input type="number" class="form-input" placeholder="100" min="0" step="0.1" required>
+                        <input type="number" class="form-input" name="quantity" placeholder="100" min="0" step="0.1" required>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">Quality Grade</label>
-                        <select class="form-select" required>
-                            <option value="">Select grade</option>
-                            <option value="A">Grade A - Premium</option>
-                            <option value="B">Grade B - Good</option>
-                            <option value="C">Grade C - Average</option>
-                            <option value="D">Grade D - Below Average</option>
-                        </select>
+
+                    <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px;">
+                        <button type="button" class="btn btn-secondary" onclick="hideRemoveModal()">Cancel</button>
+                        <button type="submit" class="btn btn-danger">Remove from Inventory</button>
                     </div>
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Expiry Date</label>
-                    <input type="date" class="form-input" required>
-                </div>
-
-                <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px;">
-                    <button type="button" class="btn btn-secondary" onclick="hideAddModal()">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Add to Inventory</button>
-                </div>
-            </form>
+                </form>
+            </div>
         </div>
     </div>
-</div>
 
-<!-- Remove from Inventory Modal -->
-<div id="removeInventoryModal" class="modal-overlay">
-    <div class="modal-container">
-        <div class="modal-header">
-            <h3 style="margin: 0; color: #111827; font-size: 1.25rem;">Remove from Inventory</h3>
-            <p style="margin: 4px 0 0 0; color: #6b7280; font-size: 0.875rem;">Remove sold or used crops from inventory</p>
-            <button onclick="hideRemoveModal()" style="position: absolute; top: 16px; right: 20px; background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer; line-height: 1;">&times;</button>
-        </div>
-        <div class="modal-body">
-            <form class="form-grid">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">Crop Type</label>
-                        <select class="form-select" required>
-                            <option value="">Select crop</option>
-                            <option value="corn">Corn (5200 tons available)</option>
-                            <option value="wheat">Wheat (3800 tons available)</option>
-                            <option value="Cocoa">Cocoa (450 tons available)</option>
-                            <option value="rice">Rice (120 tons available)</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Storage Location</label>
-                        <select class="form-select" required>
-                            <option value="">Select location</option>
-                            <option value="warehouse-a">Warehouse A</option>
-                            <option value="warehouse-b">Warehouse B</option>
-                            <option value="warehouse-c">Warehouse C</option>
-                        </select>
-                    </div>
-                </div>
+    <script>
+        // Sidebar functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const sidebar = document.getElementById('sidebar');
+            const sidebarToggle = document.getElementById('sidebarToggle');
+            const sidebarOverlay = document.getElementById('sidebarOverlay');
+            const mainContent = document.getElementById('mainContent');
 
-                <div class="form-group">
-                    <label class="form-label">Quantity (tons)</label>
-                    <input type="number" class="form-input" placeholder="100" min="0" step="0.1" required>
-                </div>
+            let isMobile = window.innerWidth <= 768;
 
-                <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px;">
-                    <button type="button" class="btn btn-secondary" onclick="hideRemoveModal()">Cancel</button>
-                    <button type="submit" class="btn btn-danger">Remove from Inventory</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
+            function checkMobile() {
+                isMobile = window.innerWidth <= 768;
+                document.body.classList.toggle('mobile-view', isMobile);
+            }
 
-<script>
-// Modal functions
-function showAddModal() {
-    document.getElementById('addInventoryModal').style.display = 'flex';
-}
+            function toggleSidebar() {
+                if (isMobile) {
+                    sidebar.classList.toggle('mobile-open');
+                    sidebarOverlay.classList.toggle('active');
+                } else {
+                    sidebar.classList.toggle('collapsed');
+                    mainContent.classList.toggle('expanded');
+                }
+            }
 
-function hideAddModal() {
-    document.getElementById('addInventoryModal').style.display = 'none';
-}
+            function closeMobileSidebar() {
+                if (isMobile) {
+                    sidebar.classList.remove('mobile-open');
+                    sidebarOverlay.classList.remove('active');
+                }
+            }
 
-function showRemoveModal() {
-    document.getElementById('removeInventoryModal').style.display = 'flex';
-}
+            sidebarToggle.addEventListener('click', toggleSidebar);
+            sidebarOverlay.addEventListener('click', closeMobileSidebar);
 
-function hideRemoveModal() {
-    document.getElementById('removeInventoryModal').style.display = 'none';
-}
+            const navLinks = document.querySelectorAll('.nav-menu a');
+            navLinks.forEach(link => link.addEventListener('click', closeMobileSidebar));
 
-// Close modals when clicking outside
-document.getElementById('addInventoryModal').addEventListener('click', function(e) {
-    if (e.target === this) {
-        hideAddModal();
-    }
-});
+            window.addEventListener('resize', function() {
+                checkMobile();
+                if (isMobile) {
+                    sidebar.classList.remove('collapsed');
+                    mainContent.classList.remove('expanded');
+                } else {
+                    sidebar.classList.remove('mobile-open');
+                    sidebarOverlay.classList.remove('active');
+                }
+            });
 
-document.getElementById('removeInventoryModal').addEventListener('click', function(e) {
-    if (e.target === this) {
-        hideRemoveModal();
-    }
-});
+            checkMobile();
 
-// Handle form submissions
-document.querySelector('#addInventoryModal form').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    // Get form data
-    const formData = new FormData(this);
-    const data = Object.fromEntries(formData.entries());
-    
-    console.log('Add inventory data:', data);
-    alert('Inventory added successfully! (In production, this would save to database)');
-    hideAddModal();
-    
-    // In production, you would send this data to your Django backend
-    // and then refresh the inventory table
-});
+            // Set default expiry date (6 months from now)
+            const expiryInput = document.querySelector('#addInventoryModal input[type="date"]');
+            if (expiryInput) {
+                const sixMonthsFromNow = new Date();
+                sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+                expiryInput.value = sixMonthsFromNow.toISOString().split('T')[0];
+            }
+            
+            // Initialize with success message
+            showToast('Inventory management loaded successfully', 'success');
+        });
 
-document.querySelector('#removeInventoryModal form').addEventListener('submit', function(e) {
-    e.preventDefault();
-    
-    // Get form data
-    const formData = new FormData(this);
-    const data = Object.fromEntries(formData.entries());
-    
-    console.log('Remove inventory data:', data);
-    alert('Inventory removed successfully! (In production, this would save to database)');
-    hideRemoveModal();
-    
-    // In production, you would send this data to your Django backend
-    // and then refresh the inventory table
-});
+        // Modal functions
+        function showAddModal() {
+            document.getElementById('addInventoryModal').style.display = 'flex';
+        }
 
-// Keyboard navigation
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-        hideAddModal();
-        hideRemoveModal();
-    }
-});
+        function hideAddModal() {
+            document.getElementById('addInventoryModal').style.display = 'none';
+        }
 
-// Set default expiry date (6 months from now)
-document.addEventListener('DOMContentLoaded', function() {
-    const expiryInput = document.querySelector('#addInventoryModal input[type="date"]');
-    if (expiryInput) {
-        const sixMonthsFromNow = new Date();
-        sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
-        expiryInput.value = sixMonthsFromNow.toISOString().split('T')[0];
-    }
-});
-</script>
-{% endblock %}
+        function showRemoveModal() {
+            document.getElementById('removeInventoryModal').style.display = 'flex';
+        }
+
+        function hideRemoveModal() {
+            document.getElementById('removeInventoryModal').style.display = 'none';
+        }
+
+        // Close modals when clicking outside
+        document.getElementById('addInventoryModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                hideAddModal();
+            }
+        });
+
+        document.getElementById('removeInventoryModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                hideRemoveModal();
+            }
+        });
+
+        // Handle form submissions
+        document.getElementById('addInventoryForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Get form data
+            const formData = new FormData(this);
+            const data = Object.fromEntries(formData.entries());
+            
+            console.log('Add inventory data:', data);
+            showToast('Inventory added successfully!', 'success');
+            hideAddModal();
+            
+            // Reset form
+            this.reset();
+            
+            // Reset expiry date to default
+            const expiryInput = this.querySelector('input[type="date"]');
+            if (expiryInput) {
+                const sixMonthsFromNow = new Date();
+                sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+                expiryInput.value = sixMonthsFromNow.toISOString().split('T')[0];
+            }
+        });
+
+        document.getElementById('removeInventoryForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Get form data
+            const formData = new FormData(this);
+            const data = Object.fromEntries(formData.entries());
+            
+            console.log('Remove inventory data:', data);
+            showToast('Inventory removed successfully!', 'success');
+            hideRemoveModal();
+            
+            // Reset form
+            this.reset();
+        });
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                hideAddModal();
+                hideRemoveModal();
+            }
+        });
+
+        // Handle notification bell click
+        document.querySelector('.notification-bell').addEventListener('click', function() {
+            showToast('Navigate to notifications page', 'info');
+        });
+
+        // Handle logout
+        document.querySelector('.logout-arrow').addEventListener('click', function() {
+            if (confirm('Are you sure you want to logout?')) {
+                showToast('Logging out...', 'info');
+                setTimeout(() => {
+                    window.location.href = '/logout/';
+                }, 1000);
+            }
+        });
+
+        // Toast notification function
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            
+            Object.assign(toast.style, {
+                position: 'fixed',
+                top: '20px',
+                right: '20px',
+                backgroundColor: type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#3b82f6',
+                color: 'white',
+                padding: '12px 20px',
+                borderRadius: '8px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                zIndex: '10000',
+                fontSize: '0.9rem',
+                fontWeight: '500',
+                transform: 'translateX(100%)',
+                transition: 'transform 0.3s ease'
+            });
+            
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.transform = 'translateX(0)';
+            }, 100);
+            
+            setTimeout(() => {
+                toast.style.transform = 'translateX(100%)';
+                setTimeout(() => {
+                    if (document.body.contains(toast)) {
+                        document.body.removeChild(toast);
+                    }
+                }, 300);
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

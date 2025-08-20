@@ -20,3 +20,4 @@ urlpatterns = [
     path('reports/generate/', views.generate_report, name='generate_report')
 
 ]
+
