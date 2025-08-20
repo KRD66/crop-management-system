@@ -18,13 +18,7 @@ from .forms import AddInventoryForm, RemoveInventoryForm, InventoryFilterForm, B
 from django.db import models, transaction
 from django.shortcuts import render
 from django.http import JsonResponse, HttpResponse, Http404
-from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import csrf_exempt
-from django.db.models import Sum, Count, Avg, Q
-from django.utils import timezone
-from datetime import datetime, timedelta
-from decimal import Decimal
-import json
 import csv
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
