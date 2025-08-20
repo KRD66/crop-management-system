@@ -507,18 +507,19 @@
         <div class="sidebar-header">
             <h2>🌱 HarvestPro</h2>
         </div>
-        <nav>
-            <ul class="nav-menu">
-                <li><a href="#dashboard">📊 Dashboard</a></li>
-                <li><a href="#farm-management">🚜 Farm Management</a></li>
-                <li><a href="#harvest-tracking">📋 Harvest Tracking</a></li>
-                <li><a href="#analytics">📈 Analytics</a></li>
-                <li><a href="#inventory">📦 Inventory</a></li>
-                <li><a href="#reports">📄 Reports</a></li>
-                <li><a href="#notifications" class="active">🔔 Notifications</a></li>
-                <li><a href="#user-management">👥 User Management</a></li>
-            </ul>
-        </nav>
+    
+            <nav>
+                <ul class="nav-menu">
+                    <li><a href="{% url 'monitoring:dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">📊 Dashboard</a></li>
+                    <li><a href="{% url 'monitoring:farm_management' %}" class="{% if request.resolver_match.url_name == 'farm_management' %}active{% endif %}">🚜 Farm Management</a></li>
+                    <li><a href="{% url 'monitoring:harvest_tracking' %}" class="{% if request.resolver_match.url_name == 'harvest_tracking' %}active{% endif %}">📋 Harvest Tracking</a></li>
+                    <li><a href="{% url 'monitoring:analytics' %}" class="{% if request.resolver_match.url_name == 'analytics' %}active{% endif %}">📈 Analytics</a></li>
+                    <li><a href="{% url 'monitoring:inventory' %}" class="{% if request.resolver_match.url_name == 'inventory' %}active{% endif %}">📦 Inventory</a></li>
+                    <li><a href="{% url 'monitoring:reports' %}" class="{% if request.resolver_match.url_name == 'reports' %}active{% endif %}">📄 Reports</a></li>
+                    <li><a href="{% url 'monitoring:notifications' %}" class="{% if request.resolver_match.url_name == 'notifications' %}active{% endif %}">🔔 Notifications</a></li>
+                    <li><a href="{% url 'monitoring:user_management' %}" class="{% if request.resolver_match.url_name == 'user_management' %}active{% endif %}">👥 User Management</a></li>
+                </ul>
+            </nav>
     </div>
 
     <!-- Main Content -->
@@ -532,12 +533,12 @@
                     </button>
                     <div class="header-title-section">
                         <h1>Notifications</h1>
-                        <p>Stay updated with important farm activities</p>
+                        <p>Important farm activities</p>
                     </div>
                 </div>
                 <div class="header-right">
                     <div class="user-info">
-                        <span class="user-name">Demo User - Admin</span>
+                        <span class="user-name">Admin</span>
                         <i class="fas fa-bell notification-bell" title="Notifications"></i>
                         <i class="fas fa-arrow-right logout-arrow" title="Logout"></i>
                     </div>
@@ -614,7 +615,7 @@
                                 <p class="notification-message">Corn harvest is due in 3 days at North Field</p>
                                 <div class="notification-meta">
                                     <span><i class="far fa-clock"></i> 2024-08-08 09:30</span>
-                                    <span><i class="fas fa-map-marker-alt"></i> North Field</span>
+                                    <span><i class="fas fa-map-marker-alt"></i> odo-eja Field</span>
                                 </div>
                             </div>
                             <div class="notification-actions">
