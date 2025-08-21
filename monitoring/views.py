@@ -1615,7 +1615,7 @@ def notifications(request):
     return render(request, 'monitoring/notifications.html', context)
 
 
-@login_required
+
 def user_management(request):
     """
     User management view - only for admins and farm managers
