@@ -2,8 +2,13 @@
 from django import forms
 from django.utils import timezone
 from datetime import date, timedelta
-from .models import Inventory, Crop, HarvestRecord
+from .models import Inventory, Crop, HarvestRecord, UserProfile
 from django.db import models
+from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
+from django.contrib.auth.models import User
+
+
+
 
 
 
@@ -257,3 +262,145 @@ class BulkInventoryUpdateForm(forms.Form):
             raise forms.ValidationError("New storage condition is required for this action.")
         
         return cleaned_data
+    
+    
+class CustomUserRegistrationForm(UserCreationForm):
+    """Custom user registration form with additional fields"""
+    
+    first_name = forms.CharField(
+        max_length=30,
+        required=True,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Enter your first name',
+            'id': 'firstName'
+        })
+    )
+    
+    last_name = forms.CharField(
+        max_length=30,
+        required=True,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Enter your last name',
+            'id': 'lastName'
+        })
+    )
+    
+    email = forms.EmailField(
+        required=True,
+        widget=forms.EmailInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Enter your email',
+            'id': 'email'
+        })
+    )
+    
+    phone_number = forms.CharField(
+        max_length=20,
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Enter your phone number (optional)',
+            'id': 'phoneNumber'
+        })
+    )
+    
+    role = forms.ChoiceField(
+        choices=UserProfile.ROLE_CHOICES,
+        required=True,
+        widget=forms.Select(attrs={
+            'class': 'form-control',
+            'id': 'role'
+        })
+    )
+    
+    password1 = forms.CharField(
+        label='Password',
+        widget=forms.PasswordInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Enter your password',
+            'id': 'password1'
+        })
+    )
+    
+    password2 = forms.CharField(
+        label='Confirm Password',
+        widget=forms.PasswordInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Confirm your password',
+            'id': 'password2'
+        })
+    )
+    
+    class Meta:
+        model = User
+        fields = ('username', 'first_name', 'last_name', 'email', 'password1', 'password2')
+        widgets = {
+            'username': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Choose a username',
+                'id': 'username'
+            })
+        }
+    
+    def clean_email(self):
+        email = self.cleaned_data.get('email')
+        if User.objects.filter(email=email).exists():
+            raise forms.ValidationError("A user with this email already exists.")
+        return email
+    
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.first_name = self.cleaned_data['first_name']
+        user.last_name = self.cleaned_data['last_name']
+        user.email = self.cleaned_data['email']
+        
+        if commit:
+            user.save()
+            # Create or update UserProfile
+            user_profile, created = UserProfile.objects.get_or_create(user=user)
+            user_profile.role = self.cleaned_data['role']
+            user_profile.phone_number = self.cleaned_data.get('phone_number', '')
+            user_profile.save()
+        
+        return user
+
+
+class CustomLoginForm(AuthenticationForm):
+    """Custom login form with styled widgets"""
+    
+    username = forms.CharField(
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Enter your email or username',
+            'id': 'loginUsername'
+        })
+    )
+    
+    password = forms.CharField(
+        widget=forms.PasswordInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Enter your password',
+            'id': 'loginPassword'
+        })
+    )
+    
+    remember_me = forms.BooleanField(
+        required=False,
+        widget=forms.CheckboxInput(attrs={
+            'class': 'form-check-input',
+            'id': 'rememberMe'
+        })
+    )
+    
+    def clean_username(self):
+        username = self.cleaned_data.get('username')
+        # Allow login with email or username
+        if '@' in username:
+            try:
+                user = User.objects.get(email=username)
+                return user.username
+            except User.DoesNotExist:
+                pass
+        return username
