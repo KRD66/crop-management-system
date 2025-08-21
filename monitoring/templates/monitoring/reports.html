@@ -441,16 +441,17 @@
         </div>
         <nav>
             <ul class="nav-menu">
-                <li><a href="/dashboard/">📊 Dashboard</a></li>
-                <li><a href="/farm_management/">🚜 Farm Management</a></li>
-                <li><a href="/harvest_tracking/">📋 Harvest Tracking</a></li>
-                <li><a href="/analytics/">📈 Analytics</a></li>
-                <li><a href="/inventory/">📦 Inventory</a></li>
-                <li><a href="/reports/" class="active">📄 Reports</a></li>
-                <li><a href="/notifications/">🔔 Notifications</a></li>
-                <li><a href="/user_management/">👥 User Management</a></li>
+                <li><a href="{% url 'monitoring:dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">📊 Dashboard</a></li>
+                <li><a href="{% url 'monitoring:farm_management' %}" class="{% if request.resolver_match.url_name == 'farm_management' %}active{% endif %}">🚜 Farm Management</a></li>
+                <li><a href="{% url 'monitoring:harvest_tracking' %}" class="{% if request.resolver_match.url_name == 'harvest_tracking' %}active{% endif %}">📋 Harvest Tracking</a></li>
+                <li><a href="{% url 'monitoring:analytics' %}" class="{% if request.resolver_match.url_name == 'analytics' %}active{% endif %}">📈 Analytics</a></li>
+                <li><a href="{% url 'monitoring:inventory' %}" class="{% if request.resolver_match.url_name == 'inventory' %}active{% endif %}">📦 Inventory</a></li>
+                <li><a href="{% url 'monitoring:reports' %}" class="{% if request.resolver_match.url_name == 'reports' %}active{% endif %}">📄 Reports</a></li>
+                <li><a href="{% url 'monitoring:notifications' %}" class="{% if request.resolver_match.url_name == 'notifications' %}active{% endif %}">🔔 Notifications</a></li>
+                <li><a href="{% url 'monitoring:user_management' %}" class="{% if request.resolver_match.url_name == 'user_management' %}active{% endif %}">👥 User Management</a></li>
             </ul>
         </nav>
+       
     </div>
 
     <!-- Main Content -->
