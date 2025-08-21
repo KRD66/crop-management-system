@@ -1621,7 +1621,7 @@ def user_management(request):
     User management view - only for admins and farm managers
     """
     # Check user permissions
-    if hasattr(request.user, 'userprofile') and request.user.userprofile.role in ['admin', 'farm_manager']:
+    if hasattr(request.user, 'userprofile') and request.user.userprofile.role in ['admin']:
         from django.contrib.auth.models import User
         
         users = User.objects.select_related('userprofile').order_by('username')
@@ -1639,7 +1639,7 @@ def user_management(request):
         
         return render(request, 'monitoring/user_management.html', context)
     else:
-        return render(request, 'monitoring/access_denied.html', {
+        return render(request, 'monitoring/user_management.html', {
             'message': 'You do not have permission to access user management.'
         })
         

@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Access Denied - HarvestPro</title>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f8fafb;
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: white;
+            height: 100vh;
+            position: fixed;
+            left: 0;
+            top: 0;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            padding: 2rem 0;
+            transition: transform 0.3s ease;
+            z-index: 1000;
+        }
+        .sidebar.collapsed { transform: translateX(-100%); }
+        .sidebar.mobile-open { transform: translateX(0); transition: transform 0.3s ease-in-out; }
+
+        .sidebar-header {
+            padding: 0 2rem;
+            margin-bottom: 2rem;
+        }
+        .sidebar-header h2 { color: #16a34a; margin: 0; font-size: 1.5rem; }
+
+        .nav-menu { list-style: none; padding: 0; margin: 0; }
+        .nav-menu li { margin: 0.5rem 0; }
+        .nav-menu a {
+            display: block;
+            padding: 1rem 2rem;
+            color: #6b7280;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        .nav-menu a:hover,
+        .nav-menu a.active {
+            background: #f3f4f6;
+            color: #16a34a;
+            border-right: 3px solid #16a34a;
+        }
+
+        /* Mobile Overlay */
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+        }
+        .sidebar-overlay.active { display: block; }
+
+        /* Main content */
+        .main-content {
+            margin-left: 280px;
+            padding: 2rem;
+            flex: 1;
+            transition: margin-left 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .main-content.expanded { margin-left: 0; }
+
+        /* Sidebar Toggle */
+        .sidebar-toggle {
+            background: none; border: none;
+            color: #6b7280; font-size: 1.2rem;
+            cursor: pointer; padding: 8px; border-radius: 6px;
+            display: flex; align-items: center; justify-content: center;
+            width: 40px; height: 40px;
+            transition: all 0.2s;
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 1001;
+            background: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .sidebar-toggle:hover { background-color: #f3f4f6; color: #16a34a; }
+
+        /* Access Denied Card */
+        .access-denied-card {
+            background: white;
+            border-radius: 16px;
+            padding: 3rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .access-denied-icon {
+            width: 80px;
+            height: 80px;
+            background: #fef2f2;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px auto;
+            color: #dc2626;
+            font-size: 2rem;
+        }
+
+        .access-denied-title {
+            color: #1f2937;
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 0 0 12px 0;
+        }
+
+        .access-denied-message {
+            color: #6b7280;
+            font-size: 1rem;
+            line-height: 1.6;
+            margin: 0 0 32px 0;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #2563eb;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .btn-secondary:hover {
+            background: #e5e7eb;
+            transform: translateY(-1px);
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .sidebar { transform: translateX(-100%); }
+            .main-content { 
+                margin-left: 0; 
+                padding: 1rem; 
+            }
+            
+            .access-denied-card {
+                padding: 2rem;
+                margin-top: 60px;
+            }
+
+            .access-denied-icon {
+                width: 60px;
+                height: 60px;
+                font-size: 1.5rem;
+            }
+
+            .access-denied-title {
+                font-size: 1.25rem;
+            }
+
+            .action-buttons {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .btn {
+                width: 100%;
+                justify-content: center;
+                max-width: 200px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .access-denied-card {
+                padding: 1.5rem;
+                width: 95%;
+            }
+
+            .sidebar-toggle {
+                top: 15px;
+                left: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar Overlay for Mobile -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h2>🌱 HarvestPro</h2>
+        </div>
+        <nav>
+            <ul class="nav-menu">
+                <li><a href="/dashboard/">📊 Dashboard</a></li>
+                <li><a href="/farm-management/">🚜 Farm Management</a></li>
+                <li><a href="/harvest-tracking/">📋 Harvest Tracking</a></li>
+                <li><a href="/analytics/">📈 Analytics</a></li>
+                <li><a href="/inventory/">📦 Inventory</a></li>
+                <li><a href="/reports/">📄 Reports</a></li>
+                <li><a href="/notifications/">🔔 Notifications</a></li>
+                <li><a href="/user-management/">👥 User Management</a></li>
+            </ul>
+        </nav>
+    </div>
+
+    <!-- Sidebar Toggle -->
+    <button class="sidebar-toggle" id="sidebarToggle">
+        <i class="fas fa-bars"></i>
+    </button>
+
+    <!-- Main Content -->
+    <div class="main-content" id="mainContent">
+        <div class="access-denied-card">
+            <div class="access-denied-icon">
+                <i class="fas fa-ban"></i>
+            </div>
+            <h1 class="access-denied-title">Access Denied</h1>
+            <p class="access-denied-message">
+                {{ message|default:"You do not have permission to access this page. Please contact your administrator if you believe this is an error." }}
+            </p>
+            <div class="action-buttons">
+                <a href="/dashboard/" class="btn btn-primary">
+                    <i class="fas fa-home"></i>
+                    Go to Dashboard
+                </a>
+                <button onclick="history.back()" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i>
+                    Go Back
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Sidebar functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const sidebar = document.getElementById('sidebar');
+            const sidebarToggle = document.getElementById('sidebarToggle');
+            const sidebarOverlay = document.getElementById('sidebarOverlay');
+            const mainContent = document.getElementById('mainContent');
+
+            let isMobile = window.innerWidth <= 768;
+
+            function checkMobile() {
+                isMobile = window.innerWidth <= 768;
+                document.body.classList.toggle('mobile-view', isMobile);
+            }
+
+            function toggleSidebar() {
+                if (isMobile) {
+                    sidebar.classList.toggle('mobile-open');
+                    sidebarOverlay.classList.toggle('active');
+                } else {
+                    sidebar.classList.toggle('collapsed');
+                    mainContent.classList.toggle('expanded');
+                }
+            }
+
+            function closeMobileSidebar() {
+                if (isMobile) {
+                    sidebar.classList.remove('mobile-open');
+                    sidebarOverlay.classList.remove('active');
+                }
+            }
+
+            sidebarToggle.addEventListener('click', toggleSidebar);
+            sidebarOverlay.addEventListener('click', closeMobileSidebar);
+
+            const navLinks = document.querySelectorAll('.nav-menu a');
+            navLinks.forEach(link => link.addEventListener('click', closeMobileSidebar));
+
+            window.addEventListener('resize', function() {
+                checkMobile();
+                if (isMobile) {
+                    sidebar.classList.remove('collapsed');
+                    mainContent.classList.remove('expanded');
+                } else {
+                    sidebar.classList.remove('mobile-open');
+                    sidebarOverlay.classList.remove('active');
+                }
+            });
+
+            checkMobile();
+        });
+    </script>
+</body>
+</html>
