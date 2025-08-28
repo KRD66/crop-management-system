@@ -1,26 +1,45 @@
-# monitoring/auth_views.py - Authentication Views
+# monitoring/auth_views.py - Updated Authentication Views (Login Only)
 from django.shortcuts import render, redirect
 from django.contrib.auth import login, authenticate
 from django.contrib.auth.views import LoginView, LogoutView
 from django.contrib import messages
 from django.urls import reverse_lazy
-from django.views.generic import CreateView
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth.decorators import user_passes_test
+from django.contrib.admin.views.decorators import staff_member_required
 import json
-from .forms import CustomUserRegistrationForm, CustomLoginForm
+from .forms import CustomLoginForm
 from .models import UserProfile
 
 class CustomLoginView(LoginView):
-    """Custom login view"""
+    """Custom login view for admin-added users only"""
     form_class = CustomLoginForm
-    template_name = 'registration/login.html'
-    redirect_authenticated_user = True
+    template_name = 'monitoring/auth.html'
+    redirect_authenticated_user = True  # Changed from False to True
     
     def get_success_url(self):
         return reverse_lazy('monitoring:dashboard')
     
+    def dispatch(self, request, *args, **kwargs):
+        # Simplified dispatch - let Django handle the redirect logic
+        return super().dispatch(request, *args, **kwargs)
+    
     def form_valid(self, form):
+        user = form.get_user()
+        
+        # Check if user has UserProfile (admin-added users should have this)
+        try:
+            user_profile = user.userprofile
+        except UserProfile.DoesNotExist:
+            messages.error(self.request, 'Access denied. Only administrator-added users can log in.')
+            return self.form_invalid(form)
+        
+        # Check if user is active
+        if not user_profile.is_active:
+            messages.error(self.request, 'Your account has been deactivated. Please contact your administrator.')
+            return self.form_invalid(form)
+        
         remember_me = form.cleaned_data.get('remember_me')
         if not remember_me:
             # Set session expiry to 0 seconds. So it will automatically close the session after the browser is closed.
@@ -28,13 +47,33 @@ class CustomLoginView(LoginView):
             # Set session as modified to force data updates/cookie to be saved.
             self.request.session.modified = True
         
-        messages.success(self.request, f'Welcome back, {form.get_user().first_name or form.get_user().username}!')
+        messages.success(
+            self.request, 
+            f'Welcome back, {user.first_name or user.username}! Role: {user_profile.get_role_display()}'
+        )
         return super().form_valid(form)
     
     def form_invalid(self, form):
-        messages.error(self.request, 'Invalid username/email or password. Please try again.')
+        # Check if the error is due to invalid credentials
+        if form.errors:
+            # Try to get the user to provide more specific error message
+            username = form.data.get('username', '').strip()
+            if username:
+                try:
+                    from django.contrib.auth.models import User
+                    user = User.objects.get(username=username) if '@' not in username else User.objects.get(email=username)
+                    
+                    # User exists but wrong password
+                    messages.error(self.request, 'Invalid password. Please try again or contact your administrator.')
+                except User.DoesNotExist:
+                    # User doesn't exist
+                    messages.error(self.request, 'User not found. Only administrator-added users can access this system.')
+            else:
+                messages.error(self.request, 'Please enter your username/email and password.')
+        else:
+            messages.error(self.request, 'Invalid username/email or password. Please try again.')
+        
         return super().form_invalid(form)
-
 
 class CustomLogoutView(LogoutView):
     """Custom logout view"""
@@ -46,97 +85,67 @@ class CustomLogoutView(LogoutView):
         return super().dispatch(request, *args, **kwargs)
 
 
-def register_view(request):
-    """User registration view"""
-    if request.user.is_authenticated:
-        return redirect('monitoring:dashboard')
-    
-    if request.method == 'POST':
-        form = CustomUserRegistrationForm(request.POST)
-        if form.is_valid():
-            try:
-                user = form.save()
-                username = form.cleaned_data.get('username')
-                messages.success(
-                    request, 
-                    f'Account created successfully for {username}! You can now log in.'
-                )
-                
-                # Auto-login the user after registration
-                user = authenticate(
-                    username=user.username,
-                    password=form.cleaned_data['password1']
-                )
-                if user:
-                    login(request, user)
-                    return redirect('monitoring:dashboard')
-                else:
-                    return redirect('monitoring:login')
-                    
-            except Exception as e:
-                messages.error(request, f'Error creating account: {str(e)}')
-        else:
-            # Form has errors
-            for field, errors in form.errors.items():
-                for error in errors:
-                    messages.error(request, f'{field.title()}: {error}')
-    else:
-        form = CustomUserRegistrationForm()
-    
-    context = {
-        'form': form,
-        'demo_accounts': get_demo_accounts()
-    }
-    return render(request, 'registration/register.html', context)
-
-
 def login_view(request):
-    """Custom login view function"""
-    if request.user.is_authenticated:
-        return redirect('monitoring:dashboard')
+    """Custom login view function for admin-added users only"""
     
     if request.method == 'POST':
         form = CustomLoginForm(request, data=request.POST)
         if form.is_valid():
-            username = form.cleaned_data['username']
-            password = form.cleaned_data['password']
-            user = authenticate(request, username=username, password=password)
+            user = form.get_user()
             
-            if user is not None:
-                login(request, user)
-                
-                # Handle remember me
-                remember_me = form.cleaned_data.get('remember_me')
-                if not remember_me:
-                    request.session.set_expiry(0)
-                
-                # Get user role for welcome message
-                role = 'User'
-                if hasattr(user, 'userprofile'):
-                    role = user.userprofile.get_role_display()
-                
-                messages.success(
-                    request, 
-                    f'Welcome back, {user.first_name or user.username}! ({role})'
-                )
-                
-                # Redirect to next or dashboard
-                next_url = request.POST.get('next') or request.GET.get('next')
-                if next_url:
-                    return redirect(next_url)
+            # Check if user has UserProfile (admin-added users should have this)
+            try:
+                user_profile = user.userprofile
+            except UserProfile.DoesNotExist:
+                messages.error(request, 'Access denied. Only administrator-added users can log in.')
+                return render(request, 'monitoring/auth.html', {'form': form})
+            
+            # Check if user is active
+            if not user_profile.is_active:
+                messages.error(request, 'Your account has been deactivated. Please contact your administrator.')
+                return render(request, 'monitoring/auth.html', {'form': form})
+            
+            remember_me = form.cleaned_data.get('remember_me', False)
+            
+            # Set session expiry based on remember_me
+            if not remember_me:
+                request.session.set_expiry(0)  # Session expires when browser closes
+            
+            login(request, user)
+            
+            messages.success(
+                request, 
+                f'Welcome back, {user.first_name or user.username}! Role: {user_profile.get_role_display()}'
+            )
+            
+            # Redirect to dashboard
+            next_page = request.GET.get('next', 'monitoring:dashboard')
+            if next_page == 'monitoring:dashboard':
                 return redirect('monitoring:dashboard')
             else:
-                messages.error(request, 'Invalid credentials. Please try again.')
+                return redirect(next_page)
         else:
-            messages.error(request, 'Please correct the errors below.')
+            # Handle form errors with more specific messages
+            username = request.POST.get('username', '').strip()
+            if username:
+                try:
+                    from django.contrib.auth.models import User
+                    user = User.objects.get(username=username) if '@' not in username else User.objects.get(email=username)
+                    
+                    # User exists but wrong password or inactive
+                    if not user.is_active:
+                        messages.error(request, 'Your account is inactive. Please contact your administrator.')
+                    else:
+                        messages.error(request, 'Invalid password. Please try again.')
+                except User.DoesNotExist:
+                    # User doesn't exist
+                    messages.error(request, 'User not found. Only administrator-added users can access this system.')
+            else:
+                messages.error(request, 'Please enter your username/email and password.')
     else:
         form = CustomLoginForm()
     
-    context = {
-        'form': form,
-        'demo_accounts': get_demo_accounts()
-    }
-    return render(request, 'registration/login.html', context)
+    return render(request, 'monitoring/auth.html', {'form': form})
 
 
 def get_demo_accounts():
@@ -146,16 +155,6 @@ def get_demo_accounts():
             'email': 'demo@harvestpro.com',
             'password': 'demo123',
             'role': 'Admin'
-        },
-        'manager': {
-            'email': 'manager@harvestpro.com', 
-            'password': 'manager123',
-            'role': 'Farm Manager'
-        },
-        'worker': {
-            'email': 'worker@harvestpro.com',
-            'password': 'worker123',
-            'role': 'Field Worker'
         }
     }
 
@@ -170,8 +169,8 @@ def demo_login(request):
             
             demo_accounts = get_demo_accounts()
             
-            if role in demo_accounts:
-                account = demo_accounts[role]
+            if role == 'admin' and 'admin' in demo_accounts:
+                account = demo_accounts['admin']
                 user = authenticate(
                     request,
                     username=account['email'],
@@ -179,6 +178,20 @@ def demo_login(request):
                 )
                 
                 if user:
+                    # Check if user has UserProfile
+                    try:
+                        user_profile = user.userprofile
+                        if not user_profile.is_active:
+                            return JsonResponse({
+                                'success': False,
+                                'message': 'Demo account is deactivated.'
+                            })
+                    except UserProfile.DoesNotExist:
+                        return JsonResponse({
+                            'success': False,
+                            'message': 'Demo account not properly configured.'
+                        })
+                    
                     login(request, user)
                     return JsonResponse({
                         'success': True,
@@ -188,7 +201,7 @@ def demo_login(request):
                 else:
                     return JsonResponse({
                         'success': False,
-                        'message': 'Demo account not found. Please create demo accounts first.'
+                        'message': 'Admin demo account not found. Please create demo accounts first.'
                     })
             else:
                 return JsonResponse({
@@ -208,8 +221,9 @@ def demo_login(request):
     })
 
 
+@staff_member_required
 def create_demo_accounts():
-    """Management command to create demo accounts"""
+    """Management command to create demo accounts - Only for staff/superusers"""
     from django.contrib.auth.models import User
     
     demo_users = [
@@ -219,23 +233,9 @@ def create_demo_accounts():
             'password': 'demo123',
             'first_name': 'Admin',
             'last_name': 'Demo',
-            'role': 'admin'
-        },
-        {
-            'username': 'manager_demo',
-            'email': 'manager@harvestpro.com',
-            'password': 'manager123',
-            'first_name': 'Manager',
-            'last_name': 'Demo',
-            'role': 'farm_manager'
-        },
-        {
-            'username': 'worker_demo',
-            'email': 'worker@harvestpro.com',
-            'password': 'worker123',
-            'first_name': 'Worker',
-            'last_name': 'Demo',
-            'role': 'field_worker'
+            'role': 'admin',
+            'is_staff': True,
+            'is_superuser': True
         }
     ]
     
@@ -246,7 +246,9 @@ def create_demo_accounts():
             defaults={
                 'email': user_data['email'],
                 'first_name': user_data['first_name'],
-                'last_name': user_data['last_name']
+                'last_name': user_data['last_name'],
+                'is_staff': user_data.get('is_staff', False),
+                'is_superuser': user_data.get('is_superuser', False)
             }
         )
         
@@ -257,9 +259,66 @@ def create_demo_accounts():
             # Create UserProfile
             profile, profile_created = UserProfile.objects.get_or_create(
                 user=user,
-                defaults={'role': user_data['role']}
+                defaults={
+                    'role': user_data['role'],
+                    'is_active': True
+                }
             )
             
             created_users.append(f"{user_data['username']} ({user_data['role']})")
     
     return created_users
+
+
+# View to redirect registration attempts
+def registration_disabled(request):
+    """View to inform users that registration is disabled"""
+    messages.info(
+        request, 
+        'User registration is disabled. Only administrators can create new accounts. '
+        'Please contact your administrator if you need access.'
+    )
+    return redirect('monitoring:login')
+
+
+# Custom decorator to check if user was added by admin
+def admin_added_required(view_func):
+    """Decorator to ensure user has UserProfile (was added by admin)"""
+    def wrapper(request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect('monitoring:login')
+        
+        try:
+            user_profile = request.user.userprofile
+            if not user_profile.is_active:
+                messages.error(request, 'Your account has been deactivated.')
+                return redirect('monitoring:login')
+        except UserProfile.DoesNotExist:
+            messages.error(request, 'Access denied. Invalid account.')
+            return redirect('monitoring:login')
+        
+        return view_func(request, *args, **kwargs)
+    
+    return wrapper
+
+
+# Role-based permission checks
+def role_required(allowed_roles):
+    """Decorator to check user role"""
+    def decorator(view_func):
+        def wrapper(request, *args, **kwargs):
+            if not request.user.is_authenticated:
+                return redirect('monitoring:login')
+            
+            try:
+                user_profile = request.user.userprofile
+                if user_profile.role not in allowed_roles:
+                    messages.error(request, 'You do not have permission to access this page.')
+                    return redirect('monitoring:dashboard')
+            except UserProfile.DoesNotExist:
+                messages.error(request, 'Access denied. Invalid account.')
+                return redirect('monitoring:login')
+            
+            return view_func(request, *args, **kwargs)
+        return wrapper
+    return decorator

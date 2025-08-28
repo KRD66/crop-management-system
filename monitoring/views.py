@@ -1,250 +1,576 @@
-# monitoring/views.py
+# monitoring/views.py - Integrated views with user management and farm monitoring
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.db.models import Sum, Count, Avg, Q, F
-from django.db.models.functions import Extract
-from datetime import datetime, timedelta, date
-from .models import Farm, HarvestRecord, Inventory, Crop, Field, UserProfile
-from collections import defaultdict
-from decimal import Decimal
-import json
-from django.http import JsonResponse
-from django.views.decorators.http import require_http_methods
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib import messages
-from django.http import JsonResponse
-from django.db import transaction
-from django.utils import timezone
-from .forms import AddInventoryForm, RemoveInventoryForm, InventoryFilterForm, BulkInventoryUpdateForm
-from django.db import models, transaction
-from django.shortcuts import render
+from django.contrib.auth.models import User
 from django.http import JsonResponse, HttpResponse, Http404
+from django.core.paginator import Paginator
+from django.db.models import Q, Sum, Count, Avg, F
+from django.db.models.functions import Extract
+from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
+from django.db import transaction, models
+from django.utils import timezone
+from datetime import datetime, timedelta, date
+from decimal import Decimal
+from collections import defaultdict
+import json
 import csv
+import random
+from io import BytesIO
+
+# ReportLab imports for PDF generation
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
+
+# OpenPyXL imports for Excel generation
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
-from io import BytesIO
+
+# Import models
+from .models import (
+    Farm, HarvestRecord, Inventory, Crop, Field, UserProfile
+)
+
+# Import forms
+from .forms import (
+    AdminUserCreationForm, UserProfileUpdateForm, PasswordResetRequestForm,
+    AddInventoryForm, RemoveInventoryForm, InventoryFilterForm, BulkInventoryUpdateForm
+)
+
+# Import custom decorators
+from .auth_views import admin_added_required, role_required
 
 
+# ========================
+# DASHBOARD AND MAIN VIEWS
+# ========================
 
-
-
-
-# Fixed monitoring/views.py - dashboard function
+@login_required
+@admin_added_required
 def dashboard(request):
     """
-    Dashboard view that calculates all metrics shown in your design
+    Main dashboard view that calculates all metrics shown in the design
     """
-    
-    # Calculate Total Harvested (like 22,600 tons in your design)
-    total_harvested = HarvestRecord.objects.aggregate(
-        total=Sum('quantity_tons')
-    )['total'] or 0
-    
-    # Calculate Active Farms (like 12 in your design)
-    active_farms = Farm.objects.filter(is_active=True).count()
-    
-    # Calculate Total Inventory (like 15,600 tons in your design)  
-    total_inventory = Inventory.objects.aggregate(
-        total=Sum('quantity_tons')
-    )['total'] or 0
-    
-    # Calculate Average Yield Efficiency (improved calculation)
-    fields_with_harvests = Field.objects.filter(
-        harvestrecord__isnull=False
-    ).distinct()
-    
-    if fields_with_harvests.exists():
-        total_actual = HarvestRecord.objects.aggregate(
+    try:
+        # Calculate Total Harvested
+        total_harvested = HarvestRecord.objects.aggregate(
             total=Sum('quantity_tons')
         )['total'] or 0
-        total_expected_area = fields_with_harvests.aggregate(
-            total=Sum('area_hectares')
-        )['total'] or 1
         
-        # Get crops and their expected yields for more accurate calculation
-        total_expected = 0
-        for field in fields_with_harvests:
-            if field.crop.expected_yield_per_hectare:
-                expected = field.area_hectares * field.crop.expected_yield_per_hectare
-            else:
-                expected = field.area_hectares * Decimal('5')  # Default 5 tons/hectare
-            total_expected += expected
+        # Calculate Active Farms
+        active_farms = Farm.objects.filter(is_active=True).count()
         
-        if total_expected > 0:
-            avg_yield_efficiency = min(int((total_actual / total_expected) * 100), 100)
-        else:
-            avg_yield_efficiency = 85  # Default when no expected data
-    else:
-        avg_yield_efficiency = 85  # Default value when no data
-    
-    # Get Harvest Trends data (monthly data for line chart)
-    harvest_trends = []
-    current_year = datetime.now().year
-    
-    for month in range(1, 13):
-        month_total = HarvestRecord.objects.filter(
-            harvest_date__year=current_year,
-            harvest_date__month=month
-        ).aggregate(total=Sum('quantity_tons'))['total'] or 0
+        # Calculate Total Inventory
+        total_inventory = Inventory.objects.aggregate(
+            total=Sum('quantity_tons')
+        )['total'] or 0
         
-        harvest_trends.append({
-            'month': datetime(current_year, month, 1).strftime('%b'),
-            'value': float(month_total)
-        })
-    
-    # Get Crop Distribution data (for donut chart)
-    crop_distribution = []
-    total_crop_harvests = HarvestRecord.objects.aggregate(
-        total=Sum('quantity_tons')
-    )['total'] or 1
-    
-    if total_crop_harvests > 0:
-        crop_stats = HarvestRecord.objects.values('field__crop__name').annotate(
-            total_quantity=Sum('quantity_tons')
-        ).order_by('-total_quantity')
+        # Calculate Average Yield Efficiency
+        fields_with_harvests = Field.objects.filter(
+            harvestrecord__isnull=False
+        ).distinct()
         
-        for crop in crop_stats:
-            if crop['total_quantity']:  # Only include crops with actual harvests
-                percentage = (crop['total_quantity'] / total_crop_harvests) * 100
-                crop_distribution.append({
-                    'crop': crop['field__crop__name'],
-                    'percentage': round(percentage, 1),
-                    'quantity': float(crop['total_quantity'])
-                })
-    
-    # If no crop data, provide sample data to match design
-    if not crop_distribution:
-        crop_distribution = [
-            {'crop': 'corn', 'percentage': 45.0, 'quantity': 0},
-            {'crop': 'wheat', 'percentage': 30.0, 'quantity': 0},
-            {'crop': 'soybeans', 'percentage': 25.0, 'quantity': 0}
-        ]
-    
-    # Get Yield Performance data (for the bar chart)
-    yield_performance = []
-    farms = Farm.objects.filter(is_active=True)[:4]  # Get first 4 farms
-    
-    if farms.exists():
-        for i, farm in enumerate(farms):
-            # Calculate expected yield based on crops and field areas
-            farm_fields = Field.objects.filter(farm=farm)
-            expected_yield = 0
+        if fields_with_harvests.exists():
+            total_actual = HarvestRecord.objects.aggregate(
+                total=Sum('quantity_tons')
+            )['total'] or 0
             
-            for field in farm_fields:
+            total_expected = 0
+            for field in fields_with_harvests:
                 if field.crop.expected_yield_per_hectare:
-                    expected_yield += float(field.area_hectares * field.crop.expected_yield_per_hectare)
+                    expected = field.area_hectares * field.crop.expected_yield_per_hectare
                 else:
-                    expected_yield += float(field.area_hectares * 5)  # Default 5 tons/hectare
+                    expected = field.area_hectares * Decimal('5')  # Default 5 tons/hectare
+                total_expected += expected
             
-            # Calculate actual yield from harvest records
-            actual_yield = HarvestRecord.objects.filter(
-                field__farm=farm
+            if total_expected > 0:
+                avg_yield_efficiency = min(int((total_actual / total_expected) * 100), 100)
+            else:
+                avg_yield_efficiency = 85
+        else:
+            avg_yield_efficiency = 85
+        
+        # Get Harvest Trends data (monthly data for line chart)
+        harvest_trends = []
+        current_year = datetime.now().year
+        
+        for month in range(1, 13):
+            month_total = HarvestRecord.objects.filter(
+                harvest_date__year=current_year,
+                harvest_date__month=month
             ).aggregate(total=Sum('quantity_tons'))['total'] or 0
             
-            yield_performance.append({
-                'farm': farm.name[:10] + ('...' if len(farm.name) > 10 else ''),  # Truncate long names
-                'expected': expected_yield,
-                'actual': float(actual_yield)
+            harvest_trends.append({
+                'month': datetime(current_year, month, 1).strftime('%b'),
+                'value': float(month_total)
             })
-    else:
-        # Sample data if no farms exist (matches design)
-        yield_performance = [
-            {'farm': 'Farm A', 'expected': 2400, 'actual': 2500},
-            {'farm': 'Farm B', 'expected': 1800, 'actual': 1600},
-            {'farm': 'Farm C', 'expected': 2000, 'actual': 2100},
-            {'farm': 'Farm D', 'expected': 1700, 'actual': 1750}
-        ]
-    
-    # Get Recent Harvests (last 5 records)
-    recent_harvests = HarvestRecord.objects.select_related(
-        'field__farm', 'field__crop', 'harvested_by'
-    ).order_by('-harvest_date')[:5]
-    
-    # Get Upcoming Harvests (fields with expected harvest dates in next 30 days)
-    upcoming_date = datetime.now().date() + timedelta(days=30)
-    upcoming_harvests = Field.objects.filter(
-        expected_harvest_date__lte=upcoming_date,
-        expected_harvest_date__gte=datetime.now().date(),
-        is_active=True
-    ).select_related('farm', 'crop').order_by('expected_harvest_date')[:5]
-    
-    # Get user role safely
-    user_role = 'Demo User - Admin'
-    if hasattr(request.user, 'userprofile'):
-        user_role = request.user.userprofile.get_role_display()
-    
-    context = {
-        # Main dashboard metrics
-        'total_harvested': float(total_harvested),
-        'active_farms': active_farms,
-        'total_inventory': float(total_inventory),
-        'avg_yield_efficiency': avg_yield_efficiency,
         
-        # Chart data (JSON serialized for JavaScript)
-        'harvest_trends': json.dumps(harvest_trends),
-        'crop_distribution': crop_distribution,
-        'yield_performance': json.dumps(yield_performance),
+        # Get Crop Distribution data (for donut chart)
+        crop_distribution = []
+        total_crop_harvests = HarvestRecord.objects.aggregate(
+            total=Sum('quantity_tons')
+        )['total'] or 1
         
-        # Recent data
-        'recent_harvests': recent_harvests,
-        'upcoming_harvests': upcoming_harvests,
+        if total_crop_harvests > 0:
+            crop_stats = HarvestRecord.objects.values('field__crop__name').annotate(
+                total_quantity=Sum('quantity_tons')
+            ).order_by('-total_quantity')
+            
+            for crop in crop_stats:
+                if crop['total_quantity']:
+                    percentage = (crop['total_quantity'] / total_crop_harvests) * 100
+                    crop_distribution.append({
+                        'crop': crop['field__crop__name'],
+                        'percentage': round(percentage, 1),
+                        'quantity': float(crop['total_quantity'])
+                    })
         
-        # User info
-        'user_role': user_role
+        # If no crop data, provide sample data
+        if not crop_distribution:
+            crop_distribution = [
+                {'crop': 'corn', 'percentage': 45.0, 'quantity': 0},
+                {'crop': 'wheat', 'percentage': 30.0, 'quantity': 0},
+                {'crop': 'soybeans', 'percentage': 25.0, 'quantity': 0}
+            ]
+        
+        # Get Yield Performance data (for the bar chart)
+        yield_performance = []
+        farms = Farm.objects.filter(is_active=True)[:4]
+        
+        if farms.exists():
+            for farm in farms:
+                farm_fields = Field.objects.filter(farm=farm)
+                expected_yield = 0
+                
+                for field in farm_fields:
+                    if field.crop.expected_yield_per_hectare:
+                        expected_yield += float(field.area_hectares * field.crop.expected_yield_per_hectare)
+                    else:
+                        expected_yield += float(field.area_hectares * 5)
+                
+                actual_yield = HarvestRecord.objects.filter(
+                    field__farm=farm
+                ).aggregate(total=Sum('quantity_tons'))['total'] or 0
+                
+                yield_performance.append({
+                    'farm': farm.name[:10] + ('...' if len(farm.name) > 10 else ''),
+                    'expected': expected_yield,
+                    'actual': float(actual_yield)
+                })
+        else:
+            # Sample data if no farms exist
+            yield_performance = [
+                {'farm': 'Farm A', 'expected': 2400, 'actual': 2500},
+                {'farm': 'Farm B', 'expected': 1800, 'actual': 1600},
+                {'farm': 'Farm C', 'expected': 2000, 'actual': 2100},
+                {'farm': 'Farm D', 'expected': 1700, 'actual': 1750}
+            ]
+        
+        # Get Recent Harvests
+        recent_harvests = HarvestRecord.objects.select_related(
+            'field__farm', 'field__crop', 'harvested_by'
+        ).order_by('-harvest_date')[:5]
+        
+        # Get Upcoming Harvests
+        upcoming_date = datetime.now().date() + timedelta(days=30)
+        upcoming_harvests = Field.objects.filter(
+            expected_harvest_date__lte=upcoming_date,
+            expected_harvest_date__gte=datetime.now().date(),
+            is_active=True
+        ).select_related('farm', 'crop').order_by('expected_harvest_date')[:5]
+        
+        # Get user role safely
+        user_role = 'Demo User - Admin'
+        if hasattr(request.user, 'userprofile'):
+            user_role = request.user.userprofile.get_role_display()
+        
+        context = {
+            # Main dashboard metrics
+            'total_harvested': float(total_harvested),
+            'active_farms': active_farms,
+            'total_inventory': float(total_inventory),
+            'avg_yield_efficiency': avg_yield_efficiency,
+            
+            # Chart data (JSON serialized for JavaScript)
+            'harvest_trends': json.dumps(harvest_trends),
+            'crop_distribution': crop_distribution,
+            'yield_performance': json.dumps(yield_performance),
+            
+            # Recent data
+            'recent_harvests': recent_harvests,
+            'upcoming_harvests': upcoming_harvests,
+            
+            # User info
+            'user_role': user_role,
+            'user_profile': getattr(request.user, 'userprofile', None)
+        }
+        
+        return render(request, 'monitoring/dashboard.html', context)
+        
+    except Exception as e:
+        print(f"Dashboard error: {e}")
+        # Return basic context on error
+        context = {
+            'total_harvested': 0,
+            'active_farms': 0,
+            'total_inventory': 0,
+            'avg_yield_efficiency': 85,
+            'harvest_trends': json.dumps([]),
+            'crop_distribution': [],
+            'yield_performance': json.dumps([]),
+            'recent_harvests': [],
+            'upcoming_harvests': [],
+            'user_role': 'User',
+            'error_message': 'Unable to load dashboard data'
+        }
+        return render(request, 'monitoring/dashboard.html', context)
+
+
+# ========================
+# USER MANAGEMENT VIEWS
+# ========================
+
+@login_required
+@role_required(['admin'])
+def user_management(request):
+    """User management view - Admin only"""
+    search_query = request.GET.get('search', '')
+    role_filter = request.GET.get('role', '')
+    status_filter = request.GET.get('status', '')
+    
+    users = User.objects.select_related('userprofile').all()
+    
+    # Apply filters
+    if search_query:
+        users = users.filter(
+            Q(username__icontains=search_query) |
+            Q(first_name__icontains=search_query) |
+            Q(last_name__icontains=search_query) |
+            Q(email__icontains=search_query)
+        )
+    
+    if role_filter:
+        users = users.filter(userprofile__role=role_filter)
+    
+    if status_filter == 'active':
+        users = users.filter(userprofile__is_active=True)
+    elif status_filter == 'inactive':
+        users = users.filter(userprofile__is_active=False)
+    
+    # Pagination
+    paginator = Paginator(users, 20)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    # Statistics
+    stats = {
+        'total_users': User.objects.filter(userprofile__isnull=False).count(),
+        'active_users': UserProfile.objects.filter(is_active=True).count(),
+        'inactive_users': UserProfile.objects.filter(is_active=False).count(),
+        'admin_users': UserProfile.objects.filter(role='admin').count(),
     }
     
-    return render(request, 'monitoring/dashboard.html', context)
-# monitoring/views.py - farm_management function
+    context = {
+        'page_obj': page_obj,
+        'search_query': search_query,
+        'role_filter': role_filter,
+        'status_filter': status_filter,
+        'role_choices': UserProfile.ROLE_CHOICES if hasattr(UserProfile, 'ROLE_CHOICES') else [],
+        'stats': stats,
+        'can_manage_users': True
+    }
+    
+    return render(request, 'monitoring/user_management.html', context)
+
+
+@login_required
+@role_required(['admin'])
+def user_add(request):
+    """Add new user - Admin only"""
+    if request.method == 'POST':
+        form = AdminUserCreationForm(request.POST)
+        if form.is_valid():
+            try:
+                user = form.save()
+                messages.success(
+                    request, 
+                    f'User {user.username} created successfully with role: {user.userprofile.get_role_display()}'
+                )
+                return redirect('monitoring:user_management')
+            except Exception as e:
+                messages.error(request, f'Error creating user: {str(e)}')
+        else:
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, f'{field.title()}: {error}')
+    else:
+        form = AdminUserCreationForm()
+    
+    context = {
+        'form': form,
+        'title': 'Add New User',
+        'submit_text': 'Create User'
+    }
+    return render(request, 'monitoring/user_form.html', context)
+
+
+@login_required
+@role_required(['admin'])
+def user_edit(request, user_id):
+    """Edit user - Admin only"""
+    user = get_object_or_404(User, id=user_id)
+    
+    if user.is_superuser and not request.user.is_superuser:
+        messages.error(request, 'You cannot edit superuser accounts.')
+        return redirect('monitoring:user_management')
+    
+    if request.method == 'POST':
+        form = UserProfileUpdateForm(request.POST, instance=user.userprofile, user=user)
+        if form.is_valid():
+            try:
+                form.save()
+                messages.success(request, f'User {user.username} updated successfully.')
+                return redirect('monitoring:user_management')
+            except Exception as e:
+                messages.error(request, f'Error updating user: {str(e)}')
+        else:
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, f'{field.title()}: {error}')
+    else:
+        form = UserProfileUpdateForm(instance=user.userprofile, user=user)
+    
+    context = {
+        'form': form,
+        'user': user,
+        'title': f'Edit User: {user.username}',
+        'submit_text': 'Update User'
+    }
+    return render(request, 'monitoring/user_form.html', context)
+
+
+@login_required
+@role_required(['admin'])
+@require_http_methods(["POST"])
+def user_deactivate(request, user_id):
+    """Deactivate user - Admin only"""
+    user = get_object_or_404(User, id=user_id)
+    
+    if user.is_superuser and not request.user.is_superuser:
+        messages.error(request, 'You cannot deactivate superuser accounts.')
+        return redirect('monitoring:user_management')
+    
+    if user == request.user:
+        messages.error(request, 'You cannot deactivate your own account.')
+        return redirect('monitoring:user_management')
+    
+    try:
+        user.userprofile.is_active = False
+        user.userprofile.save()
+        user.is_active = False
+        user.save()
+        
+        messages.success(request, f'User {user.username} has been deactivated.')
+    except Exception as e:
+        messages.error(request, f'Error deactivating user: {str(e)}')
+    
+    return redirect('monitoring:user_management')
+
+
+@login_required
+@role_required(['admin'])
+@require_http_methods(["POST"])
+def user_activate(request, user_id):
+    """Activate user - Admin only"""
+    user = get_object_or_404(User, id=user_id)
+    
+    try:
+        user.userprofile.is_active = True
+        user.userprofile.save()
+        user.is_active = True
+        user.save()
+        
+        messages.success(request, f'User {user.username} has been activated.')
+    except Exception as e:
+        messages.error(request, f'Error activating user: {str(e)}')
+    
+    return redirect('monitoring:user_management')
+
+
+@login_required
+@role_required(['admin'])
+@require_http_methods(["POST"])
+def user_delete(request, user_id):
+    """Delete user - Admin only"""
+    user = get_object_or_404(User, id=user_id)
+    
+    if user.is_superuser and not request.user.is_superuser:
+        messages.error(request, 'You cannot delete superuser accounts.')
+        return redirect('monitoring:user_management')
+    
+    if user == request.user:
+        messages.error(request, 'You cannot delete your own account.')
+        return redirect('monitoring:user_management')
+    
+    try:
+        username = user.username
+        user.delete()
+        messages.success(request, f'User {username} has been deleted.')
+    except Exception as e:
+        messages.error(request, f'Error deleting user: {str(e)}')
+    
+    return redirect('monitoring:user_management')
+
+
+@login_required
+@role_required(['admin'])
+def user_reset_password(request, user_id):
+    """Reset user password - Admin only"""
+    user = get_object_or_404(User, id=user_id)
+    
+    if request.method == 'POST':
+        new_password = request.POST.get('new_password')
+        confirm_password = request.POST.get('confirm_password')
+        
+        if not new_password or len(new_password) < 8:
+            messages.error(request, 'Password must be at least 8 characters long.')
+        elif new_password != confirm_password:
+            messages.error(request, 'Passwords do not match.')
+        else:
+            try:
+                user.set_password(new_password)
+                user.save()
+                messages.success(
+                    request, 
+                    f'Password for user {user.username} has been reset successfully.'
+                )
+                return redirect('monitoring:user_management')
+            except Exception as e:
+                messages.error(request, f'Error resetting password: {str(e)}')
+    
+    context = {
+        'user': user,
+        'title': f'Reset Password for: {user.username}',
+    }
+    return render(request, 'monitoring/user_reset_password.html', context)
+
+
+@login_required
+@admin_added_required
+def profile_view(request):
+    """View user profile"""
+    context = {
+        'user': request.user,
+        'profile': request.user.userprofile,
+    }
+    return render(request, 'monitoring/profile.html', context)
+
+
+@login_required
+@admin_added_required
+def profile_edit(request):
+    """Edit user profile (limited fields)"""
+    if request.method == 'POST':
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        phone_number = request.POST.get('phone_number', '').strip()
+        
+        try:
+            request.user.first_name = first_name
+            request.user.last_name = last_name
+            request.user.save()
+            
+            request.user.userprofile.phone_number = phone_number
+            request.user.userprofile.save()
+            
+            messages.success(request, 'Profile updated successfully.')
+            return redirect('monitoring:profile')
+        except Exception as e:
+            messages.error(request, f'Error updating profile: {str(e)}')
+    
+    context = {
+        'user': request.user,
+        'profile': request.user.userprofile,
+    }
+    return render(request, 'monitoring/profile_edit.html', context)
+
+
+def password_reset_request(request):
+    """Password reset request form"""
+    if request.method == 'POST':
+        form = PasswordResetRequestForm(request.POST)
+        if form.is_valid():
+            email = form.cleaned_data['email']
+            reason = form.cleaned_data.get('reason', '')
+            
+            messages.success(
+                request,
+                'Password reset request submitted successfully. '
+                'An administrator will contact you soon to reset your password.'
+            )
+            return redirect('monitoring:login')
+        else:
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, f'{field.title()}: {error}')
+    else:
+        form = PasswordResetRequestForm()
+    
+    context = {
+        'form': form,
+        'title': 'Request Password Reset',
+    }
+    return render(request, 'monitoring/password_reset_request.html', context)
+
+
+# ========================
+# FARM MANAGEMENT VIEWS
+# ========================
+
+@login_required
+@admin_added_required
 def farm_management(request):
+    """Farm management view"""
     farms = Farm.objects.filter(is_active=True).prefetch_related('field_set__crop')
 
-    # Calculate farm statistics
     total_farms = farms.count()
     active_farms = farms.filter(is_active=True).count()
     
-    # Calculate totals properly
     total_area = Decimal('0')
     total_fields = 0
     total_harvested_all = Decimal('0')
     
-    # Process each farm and add calculated properties
     farms_with_stats = []
     for farm in farms:
-        # Get all fields for this farm
         farm_fields = farm.field_set.all()
-        field_count = farm_fields.count()  # Don't assign to farm.field_count
+        field_count = farm_fields.count()
         total_fields += field_count
 
-        # Calculate total area from fields (convert hectares to acres)
         farm_area_hectares = farm_fields.aggregate(
             total=Sum('area_hectares')
         )['total'] or Decimal('0')
         
-        # If no fields, use the farm's total_area_hectares
         if farm_area_hectares == 0:
             farm_area_hectares = farm.total_area_hectares
         
         total_area_acres = farm_area_hectares * Decimal('2.47105')  # Convert to acres
         total_area += total_area_acres
 
-        # Calculate total harvested for this farm
         total_harvested = HarvestRecord.objects.filter(
             field__farm=farm
         ).aggregate(total=Sum('quantity_tons'))['total'] or Decimal('0')
         total_harvested_all += total_harvested
 
-        # Calculate average yield per acre for this farm
         if total_area_acres > 0:
             avg_yield = total_harvested / total_area_acres
         else:
             avg_yield = Decimal('0')
 
-        # Create a farm object with additional attributes for the template
         farm.calculated_field_count = field_count
         farm.calculated_total_area = total_area_acres
         farm.calculated_total_harvested = total_harvested
@@ -252,19 +578,15 @@ def farm_management(request):
         
         farms_with_stats.append(farm)
 
-    # Calculate average farm size
     avg_farm_size = total_area / total_farms if total_farms > 0 else Decimal('0')
 
-    # Get recent farms - handle if created_at doesn't exist
     try:
         recent_farms = Farm.objects.order_by('-created_at')[:5]
     except:
         recent_farms = farms[:5]
 
-    # Get top performing farms (by average yield)
     top_farms = sorted(farms_with_stats, key=lambda x: x.calculated_avg_yield, reverse=True)[:5]
 
-    # Location distribution for chart
     location_distribution = []
     location_counts = defaultdict(int)
     for farm in farms:
@@ -277,7 +599,6 @@ def farm_management(request):
             'count': count
         })
 
-    # Farm size distribution for chart
     size_distribution = []
     size_ranges = {
         '0-50 acres': 0,
@@ -298,7 +619,7 @@ def farm_management(request):
             size_ranges['200+ acres'] += 1
     
     for range_name, count in size_ranges.items():
-        if count > 0:  # Only include ranges with farms
+        if count > 0:
             size_distribution.append({
                 'range': range_name,
                 'count': count
@@ -318,33 +639,35 @@ def farm_management(request):
     }
 
     return render(request, 'monitoring/farm_management.html', context)
+
+
+# ========================
+# HARVEST TRACKING VIEWS
+# ========================
+
+@login_required
+@admin_added_required
 def harvest_tracking(request):
-    """
-    Harvest Tracking view - shows recent harvests with filtering options
-    """
+    """Harvest Tracking view - shows recent harvests with filtering options"""
     harvests = HarvestRecord.objects.select_related(
         'field__farm', 'field__crop', 'harvested_by'
     ).order_by('-harvest_date')[:50]
     
-    # Get summary statistics
     total_harvests = HarvestRecord.objects.count()
     total_quantity = HarvestRecord.objects.aggregate(
         total=Sum('quantity_tons')
     )['total'] or 0
     
-    # Get recent activity (last 7 days)
     week_ago = datetime.now().date() - timedelta(days=7)
     recent_activity = HarvestRecord.objects.filter(
         harvest_date__gte=week_ago
     ).count()
     
-    # Get available fields for the modal form - only active fields
     available_fields = Field.objects.select_related('farm', 'crop').filter(
         farm__is_active=True,
         is_active=True
     ).order_by('farm__name', 'name')
     
-    # Calculate additional metrics for the template
     completed_harvests = HarvestRecord.objects.filter(
         status='completed'
     ).count() if hasattr(HarvestRecord, 'status') else total_harvests
@@ -353,28 +676,24 @@ def harvest_tracking(request):
         status='in_progress'
     ).count() if hasattr(HarvestRecord, 'status') else 0
     
-    # Calculate average quality grade
     quality_grades = HarvestRecord.objects.values_list('quality_grade', flat=True)
-    avg_quality = 'A'  # Default value
+    avg_quality = 'A'
     if quality_grades:
         from collections import Counter
         grade_counts = Counter(quality_grades)
         avg_quality = grade_counts.most_common(1)[0][0] if grade_counts else 'A'
     
-    # Get this month's harvests
     month_ago = datetime.now().date() - timedelta(days=30)
     harvests_this_month = HarvestRecord.objects.filter(
         harvest_date__gte=month_ago
     ).count()
     
-    # Find best performing farm (by total harvest quantity)
     best_farm = Farm.objects.annotate(
         total_harvest=Sum('field__harvestrecord__quantity_tons')
     ).filter(total_harvest__isnull=False).order_by('-total_harvest').first()
     
     best_performing_farm = best_farm.name if best_farm else 'N/A'
     
-    # Calculate average days from planting to harvest
     avg_days_to_harvest = 0
     fields_with_both_dates = Field.objects.filter(
         harvestrecord__isnull=False
@@ -385,9 +704,9 @@ def harvest_tracking(request):
         count = 0
         for field in fields_with_both_dates:
             latest_harvest = field.harvestrecord_set.first()
-            if latest_harvest and field.planting_date:
+            if latest_harvest and hasattr(field, 'planting_date') and field.planting_date:
                 days = (latest_harvest.harvest_date - field.planting_date).days
-                if days > 0:  # Valid calculation
+                if days > 0:
                     total_days += days
                     count += 1
         avg_days_to_harvest = total_days // count if count > 0 else 0
@@ -398,8 +717,6 @@ def harvest_tracking(request):
         'total_quantity': float(total_quantity),
         'recent_activity': recent_activity,
         'available_fields': available_fields,
-        
-        # Additional metrics for template
         'completed_harvests': completed_harvests,
         'in_progress_harvests': in_progress_harvests,
         'avg_quality': avg_quality,
@@ -412,24 +729,18 @@ def harvest_tracking(request):
     
     return render(request, 'monitoring/harvest_tracking.html', context)
 
-# monitoring/views.py - Final optimized analytics function
 
+# ========================
+# ANALYTICS VIEWS
+# ========================
 
+@login_required
+@admin_added_required
 def analytics(request):
-    """
-    Analytics view - detailed charts and analysis matching UI design
-    Uses optimized calculations with proper error handling
-    """
-    from django.db.models import Sum, Avg, Q
-    from collections import defaultdict
-    import json
-    import random
-    
+    """Analytics view - detailed charts and analysis"""
     try:
         current_year = datetime.now().year
         current_date = datetime.now().date()
-        
-        # === KEY METRICS CALCULATIONS ===
         
         # Get all active farms with their efficiency data
         farms_data = []
@@ -437,24 +748,22 @@ def analytics(request):
         underperforming_count = 0
         
         for farm in Farm.objects.filter(is_active=True).prefetch_related('field_set__crop'):
-            # Calculate expected yield for farm
             expected_total = 0
             for field in farm.field_set.all():
                 if field.crop.expected_yield_per_hectare:
                     expected_total += float(field.area_hectares * field.crop.expected_yield_per_hectare)
                 else:
-                    expected_total += float(field.area_hectares * 5)  # Default 5 tons/hectare
+                    expected_total += float(field.area_hectares * 5)
             
-            # Get actual harvest
-            actual_total = float(farm.total_harvested_all_time)
+            actual_total = float(HarvestRecord.objects.filter(
+                field__farm=farm
+            ).aggregate(total=Sum('quantity_tons'))['total'] or 0)
             
-            # Calculate efficiency
             if expected_total > 0:
                 efficiency = min((actual_total / expected_total) * 100, 100)
             else:
                 efficiency = 0
             
-            # Get primary crop
             primary_crop = 'Mixed'
             if farm.field_set.exists():
                 crop_counts = defaultdict(int)
@@ -477,15 +786,13 @@ def analytics(request):
             if efficiency < 70:
                 underperforming_count += 1
         
-        # Calculate averages
         avg_efficiency = total_efficiency / len(farms_data) if farms_data else 85.0
         
-        # Find top performer
         top_performer = max(farms_data, key=lambda x: x['efficiency']) if farms_data else {
             'name': 'No Data', 'efficiency': 0
         }
         
-        # Calculate predicted harvest (next 2 weeks)
+        # Calculate predicted harvest
         two_weeks_later = current_date + timedelta(days=14)
         upcoming_fields = Field.objects.filter(
             expected_harvest_date__gte=current_date,
@@ -500,11 +807,9 @@ def analytics(request):
             else:
                 predicted_harvest += float(field.area_hectares * 5)
         
-        # === CHART DATA PREPARATION ===
-        
-        # 1. Yield Performance Chart Data
+        # Yield Performance Chart Data
         yield_performance_data = []
-        for farm_data in farms_data[:8]:  # Show up to 8 farms
+        for farm_data in farms_data[:8]:
             yield_performance_data.append({
                 'farm': farm_data['name'][:12] + ('...' if len(farm_data['name']) > 12 else ''),
                 'expected': round(farm_data['expected_yield'], 1),
@@ -521,10 +826,9 @@ def analytics(request):
             ]
             yield_performance_data.extend(samples[:4 - len(yield_performance_data)])
         
-        # 2. Seasonal Trends Data
+        # Seasonal Trends Data
         seasonal_trends_data = {'corn': [], 'wheat': [], 'soybeans': []}
         
-        # Get data for last 5 years
         for year in range(2020, 2025):
             for crop_name, crop_key in [('corn', 'corn'), ('wheat', 'wheat'), ('soy', 'soybeans')]:
                 total = HarvestRecord.objects.filter(
@@ -541,11 +845,10 @@ def analytics(request):
                 'soybeans': [600, 750, 850, 950, 1100]
             }
         
-        # 3. Weather Correlation Data
+        # Weather Correlation Data
         weather_correlation_data = {'performance': [], 'rainfall': []}
         
-        for month in range(1, 9):  # Jan to Aug
-            # Calculate monthly performance
+        for month in range(1, 9):
             month_harvests = HarvestRecord.objects.filter(
                 harvest_date__year=current_year,
                 harvest_date__month=month
@@ -564,16 +867,15 @@ def analytics(request):
                 
                 performance = min((total_actual / total_expected) * 100, 100) if total_expected > 0 else 0
             else:
-                performance = random.randint(70, 95)  # Sample data when no harvests
+                performance = random.randint(70, 95)
             
             weather_correlation_data['performance'].append(round(performance, 1))
-            # Simulated rainfall data (replace with real weather API in production)
             weather_correlation_data['rainfall'].append(round(random.uniform(1.5, 7.5), 1))
         
-        # === FARM RANKINGS ===
+        # Farm Rankings
         farm_rankings = sorted(farms_data, key=lambda x: x['efficiency'], reverse=True)[:10]
         
-        # === HARVEST PREDICTIONS ===
+        # Harvest Predictions
         harvest_predictions = []
         upcoming_fields_pred = Field.objects.filter(
             expected_harvest_date__gte=current_date,
@@ -587,23 +889,19 @@ def analytics(request):
             else:
                 predicted_amount = float(field.area_hectares * 5)
             
-            # Calculate confidence based on field history and other factors
-            confidence = 85  # Base confidence
+            confidence = 85
             
-            # Adjust confidence based on harvest history
             harvest_count = field.harvestrecord_set.count()
             if harvest_count > 3:
                 confidence += 5
             elif harvest_count > 1:
                 confidence += 3
             
-            # Add crop-specific adjustment
             if field.crop.expected_yield_per_hectare:
                 confidence += 5
             
-            # Add some variability
             confidence += random.randint(-3, 8)
-            confidence = min(max(confidence, 80), 98)  # Keep between 80-98%
+            confidence = min(max(confidence, 80), 98)
             
             harvest_predictions.append({
                 'crop': field.crop.name,
@@ -647,7 +945,6 @@ def analytics(request):
             ]
             harvest_predictions = sample_predictions
         
-        # === CONTEXT PREPARATION ===
         context = {
             # Key Metrics Cards
             'avg_efficiency': round(avg_efficiency, 1),
@@ -686,8 +983,7 @@ def analytics(request):
         return render(request, 'monitoring/analytics.html', context)
     
     except Exception as e:
-        # Error handling with fallback data
-        print(f"Analytics view error: {e}")  # Log the error
+        print(f"Analytics view error: {e}")
         
         # Provide fallback context with sample data
         fallback_context = {
@@ -728,10 +1024,14 @@ def analytics(request):
         return render(request, 'monitoring/analytics.html', fallback_context)
 
 
+# ========================
+# INVENTORY MANAGEMENT VIEWS
+# ========================
+
+@login_required
+@admin_added_required
 def inventory(request):
-    """
-    Main inventory management view with filtering and CRUD operations
-    """
+    """Main inventory management view with filtering and CRUD operations"""
     # Initialize forms
     add_form = AddInventoryForm(user=request.user)
     remove_form = RemoveInventoryForm()
@@ -803,7 +1103,7 @@ def inventory(request):
     ).order_by('-total_quantity')
     
     context = {
-        'inventory_items': inventory_items[:50],  # Paginate in production
+        'inventory_items': inventory_items[:50],
         'total_items': inventory_items.count(),
         'total_quantity': total_quantity,
         'total_value': total_value,
@@ -822,10 +1122,9 @@ def inventory(request):
 
 
 @login_required
+@admin_added_required
 def add_inventory(request):
-    """
-    Add new inventory item
-    """
+    """Add new inventory item"""
     if request.method == 'POST':
         form = AddInventoryForm(request.POST, user=request.user)
         if form.is_valid():
@@ -857,10 +1156,9 @@ def add_inventory(request):
 
 
 @login_required
+@admin_added_required
 def remove_inventory(request):
-    """
-    Remove inventory items
-    """
+    """Remove inventory items"""
     if request.method == 'POST':
         form = RemoveInventoryForm(request.POST)
         if form.is_valid():
@@ -871,7 +1169,6 @@ def remove_inventory(request):
             
             try:
                 with transaction.atomic():
-                    # Get inventory items for this crop and location, ordered by date (FIFO)
                     inventory_items = Inventory.objects.filter(
                         crop=crop,
                         storage_location=storage_location,
@@ -897,21 +1194,19 @@ def remove_inventory(request):
                     remaining_to_remove = quantity_to_remove
                     items_updated = []
                     
-                    # Remove from inventory items (FIFO - First In, First Out)
                     for item in inventory_items:
                         if remaining_to_remove <= 0:
                             break
                         
                         if item.quantity_tons <= remaining_to_remove:
-                            # Remove entire item
                             remaining_to_remove -= item.quantity_tons
                             items_updated.append(f"Removed all {item.quantity_tons} tons from {item.batch_number or 'batch'}")
                             item.delete()
                         else:
-                            # Partial removal
                             removed_amount = remaining_to_remove
                             item.quantity_tons -= remaining_to_remove
-                            item.notes += f"\n[{date.today()}] Removed {removed_amount} tons. Reason: {reason}"
+                            if hasattr(item, 'notes'):
+                                item.notes += f"\n[{date.today()}] Removed {removed_amount} tons. Reason: {reason}"
                             item.save()
                             items_updated.append(f"Removed {removed_amount} tons from {item.batch_number or 'batch'}")
                             remaining_to_remove = 0
@@ -944,10 +1239,9 @@ def remove_inventory(request):
 
 
 @login_required
+@admin_added_required
 def get_inventory_locations(request):
-    """
-    AJAX endpoint to get available storage locations for a specific crop
-    """
+    """AJAX endpoint to get available storage locations for a specific crop"""
     crop_id = request.GET.get('crop_id')
     if crop_id:
         locations = Inventory.objects.filter(
@@ -971,18 +1265,15 @@ def get_inventory_locations(request):
 
 
 @login_required
+@admin_added_required
 def inventory_summary(request):
-    """
-    Get inventory summary data for dashboard
-    """
-    # Total metrics
+    """Get inventory summary data for dashboard"""
     total_quantity = Inventory.objects.aggregate(total=Sum('quantity_tons'))['total'] or 0
     total_items = Inventory.objects.count()
     total_value = Inventory.objects.aggregate(
         total=Sum(F('quantity_tons') * F('unit_price'))
     )['total'] or 0
     
-    # Status counts
     thirty_days = date.today() + timedelta(days=30)
     low_stock_count = Inventory.objects.filter(quantity_tons__lt=10).count()
     expiring_count = Inventory.objects.filter(
@@ -990,12 +1281,10 @@ def inventory_summary(request):
         expiry_date__gt=date.today()
     ).count()
     
-    # Top crops by quantity
     top_crops = Inventory.objects.values('crop__name').annotate(
         total_quantity=Sum('quantity_tons')
     ).order_by('-total_quantity')[:5]
     
-    # Storage utilization
     storage_utilization = Inventory.objects.values('storage_location').annotate(
         total_quantity=Sum('quantity_tons'),
         item_count=Count('id')
@@ -1015,10 +1304,9 @@ def inventory_summary(request):
 
 
 @login_required
+@admin_added_required
 def bulk_update_inventory(request):
-    """
-    Bulk update inventory items
-    """
+    """Bulk update inventory items"""
     if request.method == 'POST':
         form = BulkInventoryUpdateForm(request.POST)
         if form.is_valid():
@@ -1081,13 +1369,9 @@ def bulk_update_inventory(request):
 
 
 @login_required
+@admin_added_required
 def export_inventory(request):
-    """
-    Export inventory data to CSV
-    """
-    import csv
-    from django.http import HttpResponse
-    
+    """Export inventory data to CSV"""
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="inventory_export.csv"'
     
@@ -1100,35 +1384,39 @@ def export_inventory(request):
     
     for item in Inventory.objects.select_related('crop', 'managed_by'):
         status = 'Good'
-        if item.is_expired:
+        if hasattr(item, 'is_expired') and item.is_expired:
             status = 'Expired'
-        elif item.days_until_expiry and item.days_until_expiry <= 30:
+        elif hasattr(item, 'days_until_expiry') and item.days_until_expiry and item.days_until_expiry <= 30:
             status = 'Expiring Soon'
-        elif item.is_low_stock:
+        elif hasattr(item, 'is_low_stock') and item.is_low_stock:
             status = 'Low Stock'
         
         writer.writerow([
             item.crop.name,
             item.quantity_tons,
             item.storage_location,
-            item.get_quality_grade_display(),
+            item.get_quality_grade_display() if hasattr(item, 'get_quality_grade_display') else item.quality_grade,
             item.date_stored,
             item.expiry_date or '',
-            item.get_storage_condition_display(),
-            item.batch_number or '',
-            item.unit_price or '',
-            item.total_value or '',
+            item.get_storage_condition_display() if hasattr(item, 'get_storage_condition_display') else getattr(item, 'storage_condition', ''),
+            getattr(item, 'batch_number', '') or '',
+            getattr(item, 'unit_price', '') or '',
+            getattr(item, 'total_value', '') or '',
             item.managed_by.get_full_name() or item.managed_by.username,
             status
         ])
     
     return response
 
+
+# ========================
+# REPORTING VIEWS
+# ========================
+
+@login_required
+@admin_added_required
 def reports(request):
-    """
-    Reports view - generate various reports
-    """
-    # Generate summary statistics for reports
+    """Reports view - generate various reports"""
     current_month = timezone.now().replace(day=1)
     last_month = (current_month - timedelta(days=1)).replace(day=1)
     
@@ -1158,10 +1446,9 @@ def reports(request):
 
 
 @login_required
+@admin_added_required
 def generate_report(request):
-    """
-    Generate custom reports based on user input
-    """
+    """Generate custom reports based on user input"""
     if request.method != 'POST':
         return JsonResponse({'success': False, 'error': 'Invalid request method'})
     
@@ -1174,15 +1461,12 @@ def generate_report(request):
         if not all([report_type, from_date, to_date, export_format]):
             return JsonResponse({'success': False, 'error': 'Missing required fields'})
         
-        # Convert string dates to datetime objects
         from_date = datetime.strptime(from_date, '%Y-%m-%d').date()
         to_date = datetime.strptime(to_date, '%Y-%m-%d').date()
         
-        # Validate date range
         if from_date > to_date:
             return JsonResponse({'success': False, 'error': 'Invalid date range'})
         
-        # Generate report based on type
         if report_type == 'monthly_harvest_summary':
             return generate_harvest_summary_report(from_date, to_date, export_format)
         elif report_type == 'yield_performance_report':
@@ -1199,20 +1483,14 @@ def generate_report(request):
 
 
 def generate_harvest_summary_report(from_date, to_date, export_format):
-    """
-    Generate monthly harvest summary report
-    """
-    # Get harvest data for the date range
+    """Generate monthly harvest summary report"""
     harvests = HarvestRecord.objects.filter(
         harvest_date__range=[from_date, to_date]
     ).select_related('field', 'field__farm', 'field__crop', 'harvested_by')
     
-    # Calculate summary statistics
     total_quantity = harvests.aggregate(total=Sum('quantity_tons'))['total'] or Decimal('0')
     total_harvests = harvests.count()
-    avg_quality = harvests.aggregate(avg=Avg('quality_score'))['avg'] or 0
     
-    # Group by farm
     farm_data = {}
     for harvest in harvests:
         farm_name = harvest.field.farm.name
@@ -1228,7 +1506,6 @@ def generate_harvest_summary_report(from_date, to_date, export_format):
         farm_data[farm_name]['fields'].add(harvest.field.name)
         farm_data[farm_name]['crops'].add(harvest.field.crop.name)
     
-    # Generate report based on format
     if export_format == 'pdf':
         return generate_pdf_harvest_report(farm_data, total_quantity, total_harvests, from_date, to_date)
     elif export_format == 'excel':
@@ -1237,10 +1514,31 @@ def generate_harvest_summary_report(from_date, to_date, export_format):
         return generate_csv_harvest_report(harvests, from_date, to_date)
 
 
+def generate_csv_harvest_report(harvests, from_date, to_date):
+    """Generate CSV harvest summary report"""
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="harvest_summary_{from_date}_{to_date}.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow(['Date', 'Farm', 'Field', 'Crop', 'Quantity (tons)', 'Quality Grade', 'Harvested By', 'Weather Conditions'])
+    
+    for harvest in harvests:
+        writer.writerow([
+            harvest.harvest_date.strftime('%Y-%m-%d'),
+            harvest.field.farm.name,
+            harvest.field.name,
+            harvest.field.crop.name,
+            harvest.quantity_tons,
+            harvest.quality_grade,
+            harvest.harvested_by.get_full_name(),
+            getattr(harvest, 'weather_conditions', 'N/A') or 'N/A'
+        ])
+    
+    return response
+
+
 def generate_pdf_harvest_report(farm_data, total_quantity, total_harvests, from_date, to_date):
-    """
-    Generate PDF harvest summary report
-    """
+    """Generate PDF harvest summary report"""
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter)
     styles = getSampleStyleSheet()
@@ -1320,9 +1618,7 @@ def generate_pdf_harvest_report(farm_data, total_quantity, total_harvests, from_
 
 
 def generate_excel_harvest_report(farm_data, harvests, from_date, to_date):
-    """
-    Generate Excel harvest summary report
-    """
+    """Generate Excel harvest summary report"""
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Harvest Summary"
@@ -1402,44 +1698,15 @@ def generate_excel_harvest_report(farm_data, harvests, from_date, to_date):
     return response
 
 
-def generate_csv_harvest_report(harvests, from_date, to_date):
-    """
-    Generate CSV harvest summary report
-    """
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = f'attachment; filename="harvest_summary_{from_date}_{to_date}.csv"'
-    
-    writer = csv.writer(response)
-    writer.writerow(['Date', 'Farm', 'Field', 'Crop', 'Quantity (tons)', 'Quality Grade', 'Harvested By', 'Weather Conditions'])
-    
-    for harvest in harvests:
-        writer.writerow([
-            harvest.harvest_date.strftime('%Y-%m-%d'),
-            harvest.field.farm.name,
-            harvest.field.name,
-            harvest.field.crop.name,
-            harvest.quantity_tons,
-            harvest.quality_grade,
-            harvest.harvested_by.get_full_name(),
-            harvest.weather_conditions or 'N/A'
-        ])
-    
-    return response
-
-
 def generate_yield_performance_report(from_date, to_date, export_format):
-    """
-    Generate yield performance report comparing actual vs expected yields
-    """
-    # Get harvest data with field information
+    """Generate yield performance report comparing actual vs expected yields"""
     harvests = HarvestRecord.objects.filter(
         harvest_date__range=[from_date, to_date]
     ).select_related('field', 'field__farm', 'field__crop')
     
-    # Calculate performance metrics
     performance_data = []
     for harvest in harvests:
-        expected_yield = harvest.field.expected_yield_total
+        expected_yield = getattr(harvest.field, 'expected_yield_total', 0) or 0
         actual_yield = harvest.quantity_tons
         performance_percentage = (actual_yield / expected_yield * 100) if expected_yield > 0 else 0
         
@@ -1453,42 +1720,51 @@ def generate_yield_performance_report(from_date, to_date, export_format):
             'harvest_date': harvest.harvest_date
         })
     
-    # Generate report based on format
-    if export_format == 'pdf':
-        return generate_pdf_yield_report(performance_data, from_date, to_date)
-    elif export_format == 'excel':
-        return generate_excel_yield_report(performance_data, from_date, to_date)
-    else:  # CSV
+    if export_format == 'csv':
         return generate_csv_yield_report(performance_data, from_date, to_date)
+    
+    return JsonResponse({'success': True, 'message': 'Report generated successfully'})
+
+
+def generate_csv_yield_report(performance_data, from_date, to_date):
+    """Generate CSV yield performance report"""
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="yield_performance_{from_date}_{to_date}.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow([
+        'Farm', 'Field', 'Crop', 'Expected Yield (tons)', 'Actual Yield (tons)', 
+        'Performance (%)', 'Harvest Date'
+    ])
+    
+    for data in performance_data:
+        writer.writerow([
+            data['farm'],
+            data['field'],
+            data['crop'],
+            data['expected_yield'],
+            data['actual_yield'],
+            round(data['performance_percentage'], 2),
+            data['harvest_date'].strftime('%Y-%m-%d')
+        ])
+    
+    return response
 
 
 def generate_inventory_status_report(from_date, to_date, export_format):
-    """
-    Generate inventory status report
-    """
-    # Get current inventory items
+    """Generate inventory status report"""
     inventory_items = Inventory.objects.filter(
         date_stored__range=[from_date, to_date]
     ).select_related('crop', 'managed_by')
     
-    # Calculate inventory metrics
-    total_value = sum(item.total_value or 0 for item in inventory_items)
-    total_quantity = sum(item.quantity_tons for item in inventory_items)
-    low_stock_items = [item for item in inventory_items if item.is_low_stock]
-    expired_items = [item for item in inventory_items if item.is_expired]
-    
-    # Generate report based on format
     if export_format == 'csv':
         return generate_csv_inventory_report(inventory_items, from_date, to_date)
-    # Add PDF and Excel generation as needed
     
     return JsonResponse({'success': True, 'message': 'Report generated successfully'})
 
 
 def generate_csv_inventory_report(inventory_items, from_date, to_date):
-    """
-    Generate CSV inventory status report
-    """
+    """Generate CSV inventory status report"""
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = f'attachment; filename="inventory_status_{from_date}_{to_date}.csv"'
     
@@ -1501,26 +1777,32 @@ def generate_csv_inventory_report(inventory_items, from_date, to_date):
     
     for item in inventory_items:
         status = []
-        if item.is_reserved:
+        if hasattr(item, 'is_reserved') and item.is_reserved:
             status.append('Reserved')
-        if item.is_expired:
+        if hasattr(item, 'is_expired') and item.is_expired:
             status.append('Expired')
-        if item.is_low_stock:
+        elif hasattr(item, 'expiry_date') and item.expiry_date and item.expiry_date < date.today():
+            status.append('Expired')
+        if hasattr(item, 'is_low_stock') and item.is_low_stock:
+            status.append('Low Stock')
+        elif item.quantity_tons < 10:
             status.append('Low Stock')
         if not status:
             status.append('Good')
+            
+        days_in_storage = (date.today() - item.date_stored).days if item.date_stored else 0
             
         writer.writerow([
             item.crop.name,
             item.quantity_tons,
             item.storage_location,
-            item.get_storage_condition_display(),
-            item.get_quality_grade_display(),
+            getattr(item, 'storage_condition', 'N/A'),
+            item.quality_grade,
             item.date_stored.strftime('%Y-%m-%d'),
             item.expiry_date.strftime('%Y-%m-%d') if item.expiry_date else 'N/A',
-            item.days_in_storage,
-            item.unit_price or 'N/A',
-            item.total_value or 'N/A',
+            days_in_storage,
+            getattr(item, 'unit_price', 'N/A') or 'N/A',
+            getattr(item, 'total_value', 'N/A') or 'N/A',
             ', '.join(status)
         ])
     
@@ -1528,9 +1810,7 @@ def generate_csv_inventory_report(inventory_items, from_date, to_date):
 
 
 def generate_farm_productivity_report(from_date, to_date, export_format):
-    """
-    Generate farm productivity analysis report
-    """
+    """Generate farm productivity analysis report"""
     farms = Farm.objects.all()
     
     productivity_data = []
@@ -1539,9 +1819,10 @@ def generate_farm_productivity_report(from_date, to_date, export_format):
             harvestrecord__harvest_date__range=[from_date, to_date]
         ).aggregate(total=Sum('harvestrecord__quantity_tons'))['total'] or Decimal('0')
         
-        efficiency = farm.efficiency_percentage
+        efficiency = getattr(farm, 'efficiency_percentage', 0) or 0
         total_fields = farm.field_set.count()
         active_fields = farm.field_set.filter(is_active=True).count()
+        primary_crop = getattr(farm, 'primary_crop', 'Mixed') or 'Mixed'
         
         productivity_data.append({
             'farm_name': farm.name,
@@ -1551,10 +1832,9 @@ def generate_farm_productivity_report(from_date, to_date, export_format):
             'efficiency_percentage': efficiency,
             'total_fields': total_fields,
             'active_fields': active_fields,
-            'primary_crop': farm.primary_crop
+            'primary_crop': primary_crop
         })
     
-    # Generate CSV format (add PDF/Excel as needed)
     if export_format == 'csv':
         return generate_csv_productivity_report(productivity_data, from_date, to_date)
     
@@ -1562,9 +1842,7 @@ def generate_farm_productivity_report(from_date, to_date, export_format):
 
 
 def generate_csv_productivity_report(productivity_data, from_date, to_date):
-    """
-    Generate CSV productivity report
-    """
+    """Generate CSV productivity report"""
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = f'attachment; filename="farm_productivity_{from_date}_{to_date}.csv"'
     
@@ -1589,12 +1867,14 @@ def generate_csv_productivity_report(productivity_data, from_date, to_date):
     return response
 
 
+# ========================
+# NOTIFICATIONS AND MISCELLANEOUS VIEWS
+# ========================
 
 @login_required
+@admin_added_required
 def notifications(request):
-    """
-    Notifications view - show system notifications
-    """
+    """Notifications view - show system notifications"""
     # Get fields that need attention (harvest dates approaching)
     upcoming_harvests = Field.objects.filter(
         expected_harvest_date__lte=datetime.now().date() + timedelta(days=7),
@@ -1615,41 +1895,57 @@ def notifications(request):
     return render(request, 'monitoring/notifications.html', context)
 
 
+# ========================
+# API ENDPOINTS
+# ========================
 
-def user_management(request):
-    """
-    User management view - only for admins and farm managers
-    """
-    # Check user permissions
-    if hasattr(request.user, 'userprofile') and request.user.userprofile.role in ['admin']:
-        from django.contrib.auth.models import User
-        
-        users = User.objects.select_related('userprofile').order_by('username')
-        
-        # Get user statistics
-        total_users = users.count()
-        active_users = users.filter(is_active=True).count()
-        
-        context = {
-            'users': users,
-            'total_users': total_users,
-            'active_users': active_users,
-            'can_manage_users': True
-        }
-        
-        return render(request, 'monitoring/user_management.html', context)
-    else:
-        return render(request, 'monitoring/user_management.html', {
-            'message': 'You do not have permission to access user management.'
-        })
-        
-        
+@login_required
+@role_required(['admin'])
+@csrf_exempt
+def api_user_toggle_status(request, user_id):
+    """Toggle user active status via API"""
+    if request.method == 'POST':
+        try:
+            user = get_object_or_404(User, id=user_id)
+            
+            if user.is_superuser and not request.user.is_superuser:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'You cannot modify superuser accounts.'
+                })
+            
+            if user == request.user:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'You cannot modify your own account status.'
+                })
+            
+            new_status = not user.userprofile.is_active
+            user.userprofile.is_active = new_status
+            user.userprofile.save()
+            user.is_active = new_status
+            user.save()
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'User {user.username} has been {"activated" if new_status else "deactivated"}.',
+                'new_status': new_status
+            })
+            
+        except Exception as e:
+            return JsonResponse({
+                'success': False,
+                'message': f'Error: {str(e)}'
+            })
+    
+    return JsonResponse({'success': False, 'message': 'Invalid request method'})
+
+
 def get_yearly_trends(request, year):
     """API endpoint to get seasonal trends for a specific year"""
     try:
         trends_data = {}
         
-        # Get data for major crops
         for crop_name, crop_key in [('corn', 'corn'), ('wheat', 'wheat'), ('soy', 'soybeans')]:
             monthly_data = []
             
@@ -1675,19 +1971,21 @@ def get_yearly_trends(request, year):
             'error': str(e)
         }, status=500)
 
+
 def get_farm_efficiency(request, farm_id):
     """API endpoint to get detailed efficiency data for a specific farm"""
     try:
         farm = Farm.objects.get(id=farm_id, is_active=True)
         
-        # Calculate detailed efficiency metrics
         fields_data = []
         total_expected = 0
         total_actual = 0
         
         for field in farm.field_set.all():
             field_expected = float(field.area_hectares * (field.crop.expected_yield_per_hectare or 5))
-            field_actual = float(field.total_harvested)
+            field_actual = float(HarvestRecord.objects.filter(field=field).aggregate(
+                total=Sum('quantity_tons')
+            )['total'] or 0)
             
             field_efficiency = (field_actual / field_expected * 100) if field_expected > 0 else 0
             
@@ -1730,23 +2028,21 @@ def get_farm_efficiency(request, farm_id):
             'error': str(e)
         }, status=500)
 
+
 def get_live_metrics(request):
     """API endpoint for live dashboard metrics updates"""
     try:
-        # Calculate current metrics
         total_harvests = HarvestRecord.objects.count()
         active_farms = Farm.objects.filter(is_active=True).count()
         total_inventory = Inventory.objects.aggregate(
             total=Sum('quantity_tons')
         )['total'] or 0
         
-        # Recent activity (last 7 days)
         week_ago = datetime.now().date() - timedelta(days=7)
         recent_harvests = HarvestRecord.objects.filter(
             harvest_date__gte=week_ago
         ).count()
         
-        # Upcoming harvests (next 7 days)
         next_week = datetime.now().date() + timedelta(days=7)
         upcoming_harvests = Field.objects.filter(
             expected_harvest_date__gte=datetime.now().date(),
@@ -1771,3 +2067,284 @@ def get_live_metrics(request):
             'success': False,
             'error': str(e)
         }, status=500)
+        
+        
+        
+        # Add these missing views to your monitoring/views.py file
+
+@login_required
+@admin_added_required
+def farm_list(request):
+    """List all farms with basic information"""
+    farms = Farm.objects.filter(is_active=True).select_related().order_by('name')
+    
+    context = {
+        'farms': farms,
+        'total_farms': farms.count()
+    }
+    return render(request, 'monitoring/farm_list.html', context)
+
+
+@login_required
+@admin_added_required
+def farm_detail(request, farm_id):
+    """Detailed view of a specific farm"""
+    farm = get_object_or_404(Farm, id=farm_id)
+    
+    # Get farm fields
+    fields = farm.field_set.select_related('crop').all()
+    
+    # Get recent harvests for this farm
+    recent_harvests = HarvestRecord.objects.filter(
+        field__farm=farm
+    ).select_related('field', 'field__crop', 'harvested_by').order_by('-harvest_date')[:10]
+    
+    # Calculate farm statistics
+    total_harvested = HarvestRecord.objects.filter(
+        field__farm=farm
+    ).aggregate(total=Sum('quantity_tons'))['total'] or 0
+    
+    total_area = fields.aggregate(total=Sum('area_hectares'))['total'] or farm.total_area_hectares
+    
+    context = {
+        'farm': farm,
+        'fields': fields,
+        'recent_harvests': recent_harvests,
+        'total_harvested': total_harvested,
+        'total_area': total_area,
+        'field_count': fields.count()
+    }
+    return render(request, 'monitoring/farm_detail.html', context)
+
+
+@login_required
+@admin_added_required
+def field_list(request):
+    """List all fields"""
+    fields = Field.objects.select_related('farm', 'crop').filter(
+        is_active=True
+    ).order_by('farm__name', 'name')
+    
+    context = {
+        'fields': fields,
+        'total_fields': fields.count()
+    }
+    return render(request, 'monitoring/field_list.html', context)
+
+
+@login_required
+@admin_added_required
+def field_detail(request, field_id):
+    """Detailed view of a specific field"""
+    field = get_object_or_404(Field, id=field_id)
+    
+    # Get harvests for this field
+    harvests = HarvestRecord.objects.filter(
+        field=field
+    ).select_related('harvested_by').order_by('-harvest_date')
+    
+    # Calculate field statistics
+    total_harvested = harvests.aggregate(total=Sum('quantity_tons'))['total'] or 0
+    
+    context = {
+        'field': field,
+        'harvests': harvests,
+        'total_harvested': total_harvested,
+        'harvest_count': harvests.count()
+    }
+    return render(request, 'monitoring/field_detail.html', context)
+
+
+@login_required
+@admin_added_required
+def harvest_list(request):
+    """List all harvest records"""
+    harvests = HarvestRecord.objects.select_related(
+        'field__farm', 'field__crop', 'harvested_by'
+    ).order_by('-harvest_date')
+    
+    # Apply filters if provided
+    farm_filter = request.GET.get('farm')
+    crop_filter = request.GET.get('crop')
+    date_from = request.GET.get('date_from')
+    date_to = request.GET.get('date_to')
+    
+    if farm_filter:
+        harvests = harvests.filter(field__farm__id=farm_filter)
+    
+    if crop_filter:
+        harvests = harvests.filter(field__crop__id=crop_filter)
+    
+    if date_from:
+        try:
+            from_date = datetime.strptime(date_from, '%Y-%m-%d').date()
+            harvests = harvests.filter(harvest_date__gte=from_date)
+        except ValueError:
+            pass
+    
+    if date_to:
+        try:
+            to_date = datetime.strptime(date_to, '%Y-%m-%d').date()
+            harvests = harvests.filter(harvest_date__lte=to_date)
+        except ValueError:
+            pass
+    
+    # Pagination
+    paginator = Paginator(harvests, 25)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+    
+    # Get filter options
+    farms = Farm.objects.filter(is_active=True).order_by('name')
+    crops = Crop.objects.all().order_by('name')
+    
+    context = {
+        'page_obj': page_obj,
+        'farms': farms,
+        'crops': crops,
+        'farm_filter': farm_filter,
+        'crop_filter': crop_filter,
+        'date_from': date_from,
+        'date_to': date_to,
+        'total_harvests': harvests.count()
+    }
+    return render(request, 'monitoring/harvest_list.html', context)
+
+
+@login_required
+@admin_added_required
+def harvest_detail(request, harvest_id):
+    """Detailed view of a specific harvest record"""
+    harvest = get_object_or_404(HarvestRecord, id=harvest_id)
+    
+    context = {
+        'harvest': harvest
+    }
+    return render(request, 'monitoring/harvest_detail.html', context)
+
+
+@login_required
+@role_required(['admin', 'manager'])
+def harvest_add(request):
+    """Add new harvest record"""
+    if request.method == 'POST':
+        # Handle form submission
+        field_id = request.POST.get('field')
+        quantity_tons = request.POST.get('quantity_tons')
+        harvest_date = request.POST.get('harvest_date')
+        quality_grade = request.POST.get('quality_grade', 'A')
+        
+        try:
+            field = Field.objects.get(id=field_id)
+            
+            harvest = HarvestRecord.objects.create(
+                field=field,
+                quantity_tons=Decimal(quantity_tons),
+                harvest_date=datetime.strptime(harvest_date, '%Y-%m-%d').date(),
+                quality_grade=quality_grade,
+                harvested_by=request.user
+            )
+            
+            messages.success(request, f'Harvest record created successfully: {quantity_tons} tons from {field.name}')
+            return redirect('monitoring:harvest_detail', harvest_id=harvest.id)
+            
+        except Exception as e:
+            messages.error(request, f'Error creating harvest record: {str(e)}')
+    
+    # Get available fields for the form
+    fields = Field.objects.filter(is_active=True).select_related('farm', 'crop').order_by('farm__name', 'name')
+    
+    context = {
+        'fields': fields,
+        'today': datetime.now().date()
+    }
+    return render(request, 'monitoring/harvest_add.html', context)
+
+
+@login_required
+@role_required(['admin'])
+def harvest_edit(request, harvest_id):
+    """Edit harvest record - Admin only"""
+    harvest = get_object_or_404(HarvestRecord, id=harvest_id)
+    
+    if request.method == 'POST':
+        try:
+            harvest.quantity_tons = Decimal(request.POST.get('quantity_tons'))
+            harvest.harvest_date = datetime.strptime(request.POST.get('harvest_date'), '%Y-%m-%d').date()
+            harvest.quality_grade = request.POST.get('quality_grade')
+            
+            # Add notes about the edit
+            if hasattr(harvest, 'notes'):
+                harvest.notes += f"\n[{datetime.now().date()}] Edited by {request.user.get_full_name() or request.user.username}"
+            
+            harvest.save()
+            
+            messages.success(request, 'Harvest record updated successfully.')
+            return redirect('monitoring:harvest_detail', harvest_id=harvest.id)
+            
+        except Exception as e:
+            messages.error(request, f'Error updating harvest record: {str(e)}')
+    
+    context = {
+        'harvest': harvest
+    }
+    return render(request, 'monitoring/harvest_edit.html', context)
+
+
+@login_required
+@role_required(['admin'])
+@require_http_methods(["POST"])
+def harvest_delete(request, harvest_id):
+    """Delete harvest record - Admin only"""
+    harvest = get_object_or_404(HarvestRecord, id=harvest_id)
+    
+    try:
+        field_name = harvest.field.name
+        farm_name = harvest.field.farm.name
+        quantity = harvest.quantity_tons
+        
+        harvest.delete()
+        
+        messages.success(request, f'Harvest record deleted: {quantity} tons from {field_name} ({farm_name})')
+        return redirect('monitoring:harvest_list')
+        
+    except Exception as e:
+        messages.error(request, f'Error deleting harvest record: {str(e)}')
+        return redirect('monitoring:harvest_detail', harvest_id=harvest_id)
+
+
+@login_required
+@admin_added_required
+def crop_list(request):
+    """List all crops"""
+    crops = Crop.objects.all().order_by('name')
+    
+    # Add statistics for each crop
+    for crop in crops:
+        crop.field_count = Field.objects.filter(crop=crop).count()
+        crop.total_harvested = HarvestRecord.objects.filter(
+            field__crop=crop
+        ).aggregate(total=Sum('quantity_tons'))['total'] or 0
+    
+    context = {
+        'crops': crops,
+        'total_crops': crops.count()
+    }
+    return render(request, 'monitoring/crop_list.html', context)
+
+
+@login_required
+@admin_added_required
+def settings_view(request):
+    """Settings view for system configuration"""
+    context = {
+        'user': request.user,
+        'system_info': {
+            'version': '1.0.0',
+            'last_updated': datetime.now().strftime('%Y-%m-%d'),
+            'total_users': User.objects.count(),
+            'total_farms': Farm.objects.count(),
+            'total_harvests': HarvestRecord.objects.count(),
+        }
+    }
+    return render(request, 'monitoring/settings.html', context)

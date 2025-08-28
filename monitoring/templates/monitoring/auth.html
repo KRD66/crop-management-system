@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HarvestPro - Login</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #a8e6cf 0%, #dcedc1 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .auth-container {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            width: 100%;
+            max-width: 450px;
+            position: relative;
+        }
+
+        .demo-section {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 32px;
+            text-align: center;
+            border: 1px solid #e9ecef;
+        }
+
+        .demo-button {
+            background: #22c55e;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-block;
+            width: 100%;
+            max-width: 200px;
+        }
+
+        .demo-button:hover {
+            background: #16a34a;
+            transform: translateY(-1px);
+        }
+
+        .logo-section {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: #22c55e;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 18px;
+        }
+
+        .logo-text {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1a1a1a;
+        }
+
+        .welcome-text {
+            color: #1a1a1a;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #6b7280;
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            color: #374151;
+            font-size: 14px;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1.5px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: all 0.2s ease;
+            background: #fafafa;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #22c55e;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
+        }
+
+        .form-control::placeholder {
+            color: #9ca3af;
+        }
+
+        .submit-button {
+            width: 100%;
+            background: #1a1a1a;
+            color: white;
+            border: none;
+            padding: 14px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            margin-top: 8px;
+        }
+
+        .submit-button:hover {
+            background: #333;
+            transform: translateY(-1px);
+        }
+
+        .submit-button:active {
+            transform: translateY(0);
+        }
+
+        .error-message, .success-message {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+
+        .error-message {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
+        }
+
+        .success-message {
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            color: #0c4a6e;
+        }
+
+        .form-check {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 16px 0;
+        }
+
+        .form-check-input {
+            width: 16px;
+            height: 16px;
+        }
+
+        .form-check-label {
+            font-size: 14px;
+            color: #6b7280;
+            cursor: pointer;
+        }
+
+        .admin-only-notice {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .forgot-password {
+            text-align: center;
+            margin-top: 16px;
+        }
+
+        .forgot-password a {
+            color: #6b7280;
+            text-decoration: none;
+            font-size: 14px;
+            transition: color 0.2s ease;
+        }
+
+        .forgot-password a:hover {
+            color: #22c55e;
+        }
+
+        @media (max-width: 480px) {
+            .auth-container {
+                padding: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <!-- Demo Admin Button -->
+        <div class="demo-section">
+            <button type="button" class="demo-button" onclick="fillAdminCredentials()">
+                Log in as Admin
+            </button>
+        </div>
+
+        <!-- Logo and Welcome -->
+        <div class="logo-section">
+            <div class="logo">
+                <div class="logo-icon">🌾</div>
+                <div class="logo-text">HarvestPro</div>
+            </div>
+            <div class="welcome-text">Welcome Back</div>
+            <div class="subtitle">Sign in to your farm management dashboard</div>
+        </div>
+
+        <!-- Admin Only Notice -->
+        <div class="admin-only-notice">
+            <strong>Admin Access Only:</strong> Only users added by administrators can access this system. Please contact your administrator if you need an account.
+        </div>
+
+        <!-- Messages -->
+        {% if messages %}
+        <div>
+            {% for message in messages %}
+            <div class="{% if message.tags == 'error' %}error-message{% else %}success-message{% endif %}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Login Form -->
+        <div class="form-section">
+            <form method="post" action="{% url 'monitoring:login' %}" id="loginForm">
+                {% csrf_token %}
+                <input type="hidden" name="form_type" value="login">
+                
+                <div class="form-group">
+                    <label for="loginUsername" class="form-label">Email / Username</label>
+                    <input type="text" name="username" id="loginUsername" class="form-control" 
+                           placeholder="Enter your email or username" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="loginPassword" class="form-label">Password</label>
+                    <input type="password" name="password" id="loginPassword" class="form-control" 
+                           placeholder="Enter your password" required>
+                </div>
+
+                <div class="form-check">
+                    <input type="checkbox" name="remember_me" id="rememberMe" class="form-check-input">
+                    <label for="rememberMe" class="form-check-label">Remember me</label>
+                </div>
+
+                <button type="submit" class="submit-button">Sign In</button>
+            </form>
+        </div>
+
+        <!-- Forgot Password Link -->
+        <div class="forgot-password">
+            <a href="#" onclick="showForgotPasswordAlert()">Forgot your password?</a>
+        </div>
+    </div>
+
+    <script>
+        function fillAdminCredentials() {
+            document.getElementById('loginUsername').value = 'demo@harvestpro.com';
+            document.getElementById('loginPassword').value = 'demo123';
+        }
+
+        function showForgotPasswordAlert() {
+            alert('Please contact your system administrator to reset your password.');
+        }
+
+        // Form validation
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            const username = document.getElementById('loginUsername').value.trim();
+            const password = document.getElementById('loginPassword').value;
+            
+            if (!username || !password) {
+                e.preventDefault();
+                alert('Please enter both username/email and password.');
+                return false;
+            }
+        });
+
+        // Auto-focus on username field
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('loginUsername').focus();
+        });
+    </script>
+</body>
+</html>

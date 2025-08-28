@@ -6,6 +6,7 @@
     <title>{% block title %}HarvestPro{% endblock %}</title>
     <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    {% block extra_css %}{% endblock %}
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -121,93 +122,31 @@
         }
         .sidebar-toggle:hover { background-color: #f3f4f6; color: #16a34a; }
 
-        /* Metrics Grid */
-        .metrics {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-        .metric-card {
-            background: white;
-            padding: 1.5rem;
-            border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            position: relative;
-            border-left: 4px solid #2563eb;
-            display: flex; align-items: center; gap: 15px;
-        }
-        .metric-card:nth-child(1) { border-left-color: #3b82f6; }
-        .metric-card:nth-child(2) { border-left-color: #10b981; }
-        .metric-card:nth-child(3) { border-left-color: #f59e0b; }
-        .metric-card:nth-child(4) { border-left-color: #8b5cf6; }
-        .metric-icon { width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; color: white; flex-shrink: 0; }
-        .metric-card:nth-child(1) .metric-icon { background: #3b82f6; }
-        .metric-card:nth-child(2) .metric-icon { background: #10b981; }
-        .metric-card:nth-child(3) .metric-icon { background: #f59e0b; }
-        .metric-card:nth-child(4) .metric-icon { background: #8b5cf6; }
-        .metric-content { flex: 1; }
-        .metric-value { font-size: 2.5rem; font-weight: bold; color: #1f2937; margin: 10px 0; line-height: 1; }
-        .metric-label { color: #6b7280; font-size: 0.9rem; font-weight: 500; }
-        .metric-change { color: #10b981; font-size: 0.8rem; margin-top: 5px; }
-
-        /* Section Styling */
-        .section {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }
-
-        /* Responsive Media Queries */
-        @media (max-width: 1024px) {
-            .main-content { padding: 1.5rem; }
-            .metrics { grid-template-columns: repeat(2, 1fr); gap: 18px; }
-        }
-
+        /* Add responsive styles */
         @media (max-width: 768px) {
             body, html { overflow-x: hidden; max-width: 100vw; }
             .sidebar { transform: translateX(-100%); }
-            .main-content { margin-left: 0; padding: 0.75rem; width: 100%; max-width: 100vw; }
+            .main-content { 
+                margin-left: 0; 
+                padding: 0.75rem; 
+                width: 100%; 
+                max-width: 100vw; 
+            }
             .container { width: 100%; padding: 0; margin: 0; }
-            .header { padding: 12px; margin-bottom: 15px; flex-wrap: wrap; }
-            .header-left { gap: 8px; }
-            .header-left h1 { font-size: 1.3rem; }
-            .header-left p { font-size: 0.8rem; }
-            .header-right { gap: 12px; }
-            .user-info { gap: 8px; padding: 6px 10px; }
-            .user-name { display: none; }
-            .metrics { grid-template-columns: 1fr; gap: 12px; }
-            .metric-card { padding: 1rem; gap: 12px; }
-            .metric-value { font-size: 1.8rem; }
-            .metric-label { font-size: 0.85rem; }
-            .metric-change { font-size: 0.75rem; }
-            .metric-icon { width: 40px; height: 40px; font-size: 1.2rem; }
-            .section { padding: 15px; margin-bottom: 15px; }
-            input, select, textarea, button { width: 100% !important; box-sizing: border-box; border-radius: 6px; font-size: 1rem !important; padding: 12px !important; margin-bottom: 10px; }
+            
+            .header { 
+                padding: 12px; 
+                margin-bottom: 15px; 
+                flex-wrap: wrap; 
+            }
         }
 
         @media (max-width: 480px) {
-            .header { flex-direction: column; align-items: flex-start; gap: 10px; }
-            .header-left h1 { font-size: 1.2rem; }
-            .header-left p { display: none; }
-            .metric-value { font-size: 1.5rem; }
-            .section { padding: 12px; }
-        }
-
-        /* Very small screens */
-        @media (max-width: 320px) {
-            .header-left h1 { font-size: 1.1rem; }
-            .metric-value { font-size: 1.3rem; }
-            .section { padding: 10px; }
-        }
-
-        /* Print Styles */
-        @media print {
-            .sidebar, .sidebar-toggle, .notification-bell, .logout-arrow { display: none !important; }
-            .main-content { margin-left: 0 !important; padding: 0 !important; }
-            .section { box-shadow: none !important; border: 1px solid #ddd !important; }
+            .header { 
+                flex-direction: column; 
+                align-items: flex-start; 
+                gap: 10px; 
+            }
         }
     </style>
 </head>
@@ -237,29 +176,47 @@
     <!-- Main Content -->
     <div class="main-content" id="mainContent">
         <div class="container">
+            <!-- Header -->
             <div class="header">
                 <div class="header-left">
-                    <button class="sidebar-toggle" id="sidebarToggle"><i class="fas fa-bars"></i></button>
+                    <button class="sidebar-toggle" id="sidebarToggle">
+                        <i class="fas fa-bars"></i>
+                    </button>
                     <div class="header-title-section">
-                        <h1>{% block page_title %}Dashboard{% endblock %}</h1>
-                        <p>Welcome back, Demo User - Admin</p>
+                        {% block header_content %}
+                        <h1>HarvestPro</h1>
+                        <p>Agricultural Management System</p>
+                        {% endblock %}
                     </div>
                 </div>
                 <div class="header-right">
                     <div class="user-info">
-                        <span class="user-name">Demo User - Admin</span>
+                        <span class="user-name">
+                            {% if user.is_authenticated %}
+                                {% if user.userprofile %}
+                                    {{ user.userprofile.get_role_display }}
+                                {% else %}
+                                    {{ user.first_name|default:user.username }}
+                                {% endif %}
+                            {% else %}
+                                Guest
+                            {% endif %}
+                        </span>
                         <i class="fas fa-bell notification-bell" title="Notifications"></i>
                         <i class="fas fa-arrow-right logout-arrow" title="Logout"></i>
                     </div>
                 </div>
             </div>
 
-            {% block content %}{% endblock %}
+            <!-- Page Content -->
+            {% block content %}
+            {% endblock %}
         </div>
     </div>
 
-    <!-- Toggle JavaScript -->
+    <!-- Base JavaScript -->
     <script>
+        // Sidebar functionality
         document.addEventListener('DOMContentLoaded', function() {
             const sidebar = document.getElementById('sidebar');
             const sidebarToggle = document.getElementById('sidebarToggle');
@@ -305,19 +262,63 @@
                     sidebar.classList.remove('mobile-open');
                     sidebarOverlay.classList.remove('active');
                 }
-                if (window.Chart) Object.values(Chart.instances).forEach(chart => chart.resize());
             });
 
             checkMobile();
-
-            // Fix viewport height for mobile
-            function setViewportHeight() {
-                let vh = window.innerHeight * 0.01;
-                document.documentElement.style.setProperty('--vh', `${vh}px`);
-            }
-            setViewportHeight();
-            window.addEventListener('resize', setViewportHeight);
         });
+
+        // Handle notification bell click
+        document.querySelector('.notification-bell').addEventListener('click', function() {
+            showToast('Navigate to notifications page', 'info');
+        });
+
+        // Handle logout
+        document.querySelector('.logout-arrow').addEventListener('click', function() {
+            if (confirm('Are you sure you want to logout?')) {
+                showToast('Logging out...', 'info');
+                setTimeout(() => {
+                    window.location.href = '/logout/';
+                }, 1000);
+            }
+        });
+
+        // Toast notification function
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            
+            Object.assign(toast.style, {
+                position: 'fixed',
+                top: '20px',
+                right: '20px',
+                backgroundColor: type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#3b82f6',
+                color: 'white',
+                padding: '12px 20px',
+                borderRadius: '8px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                zIndex: '10000',
+                fontSize: '0.9rem',
+                fontWeight: '500',
+                transform: 'translateX(100%)',
+                transition: 'transform 0.3s ease'
+            });
+            
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.transform = 'translateX(0)';
+            }, 100);
+            
+            setTimeout(() => {
+                toast.style.transform = 'translateX(100%)';
+                setTimeout(() => {
+                    if (document.body.contains(toast)) {
+                        document.body.removeChild(toast);
+                    }
+                }, 300);
+            }, 3000);
+        }
     </script>
 
     {% block extra_js %}{% endblock %}
