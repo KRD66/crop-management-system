@@ -1,1998 +1,1321 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Harvest Tracking - HarvestPro</title>
-    <!-- Font Awesome for icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+{% extends 'monitoring/base.html' %}
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background-color: #f8fafb;
-            display: flex;
-            min-height: 100vh;
-        }
+{% block title %}Harvest Tracking - HarvestPro{% endblock %}
 
-        /* Sidebar Styles - Updated to match dashboard */
-        .sidebar {
-            width: 280px;
-            background: white;
-            height: 100vh;
-            position: fixed;
-            left: 0;
-            top: 0;
-            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
-            padding: 2rem 0;
-            transition: transform 0.3s ease;
-            z-index: 1000;
-        }
-        
-        .sidebar.collapsed { transform: translateX(-100%); }
-        .sidebar.mobile-open { transform: translateX(0); transition: transform 0.3s ease-in-out; }
+{% block header_content %}
+<h1>Harvest Tracking</h1>
+<p>Track and manage all harvest activities</p>
+{% endblock %}
 
-        .sidebar-header {
-            padding: 0 2rem;
-            margin-bottom: 2rem;
-        }
-        
-        .sidebar-header h2 { 
-            color: #16a34a; 
-            margin: 0; 
-            font-size: 1.5rem;
-        }
+{% block extra_css %}
+<style>
+    /* Harvest Tracking Specific Styles */
+    
+    /* Metrics Cards */
+    .metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 24px;
+        margin-bottom: 32px;
+    }
 
-        .nav-menu { 
-            list-style: none; 
-            padding: 0; 
-            margin: 0; 
-        }
-        
-        .nav-menu li { 
-            margin: 0.5rem 0; 
-        }
-        
-        .nav-menu a {
-            display: block;
-            padding: 1rem 2rem;
-            color: #6b7280;
-            text-decoration: none;
-            transition: all 0.2s;
-        }
-        
-        .nav-menu a:hover,
-        .nav-menu a.active {
-            background: #f3f4f6;
-            color: #16a34a;
-            border-right: 3px solid #16a34a;
-        }
+    .metric-card {
+        background: white;
+        padding: 24px;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
+        position: relative;
+        overflow: hidden;
+    }
 
-        /* Sidebar Overlay for Mobile */
-        .sidebar-overlay {
-            display: none;
-            position: fixed;
-            top: 0; 
-            left: 0;
-            width: 100%; 
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
-            z-index: 999;
-        }
-        .sidebar-overlay.active { display: block; }
+    .metric-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 4px;
+        height: 100%;
+    }
 
-        /* Main Content */
-        .main-content {
-            margin-left: 280px;
-            padding: 2rem;
-            flex: 1;
-            transition: margin-left 0.3s ease;
-            min-height: 100vh;
-        }
-        .main-content.expanded { margin-left: 0; }
+    .metric-card:nth-child(1)::before { background: #3b82f6; }
+    .metric-card:nth-child(2)::before { background: #10b981; }
+    .metric-card:nth-child(3)::before { background: #f59e0b; }
+    .metric-card:nth-child(4)::before { background: #8b5cf6; }
 
-        .container { 
-            max-width: 1400px; 
-            margin: 0 auto;
-        }
+    .metric-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.25rem;
+        color: white;
+        flex-shrink: 0;
+    }
 
-        /* Header */
-        .header {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+    .metric-card:nth-child(1) .metric-icon { background: #3b82f6; }
+    .metric-card:nth-child(2) .metric-icon { background: #10b981; }
+    .metric-card:nth-child(3) .metric-icon { background: #f59e0b; }
+    .metric-card:nth-child(4) .metric-icon { background: #8b5cf6; }
 
-        .header-left { 
-            display: flex; 
-            align-items: center; 
-            gap: 15px; 
-            flex: 1; 
-            min-width: 0;
-        }
+    .metric-content { flex: 1; }
+    .metric-label { 
+        color: #6b7280; 
+        font-size: 0.875rem; 
+        font-weight: 500; 
+        margin-bottom: 8px;
+    }
+    .metric-value { 
+        font-size: 2rem; 
+        font-weight: 700; 
+        color: #111827; 
+        margin-bottom: 4px;
+        line-height: 1; 
+    }
+    .metric-change { 
+        color: #6b7280; 
+        font-size: 0.75rem; 
+        font-weight: 500; 
+    }
 
-        .sidebar-toggle {
-            background: none; 
-            border: none;
-            color: #6b7280; 
-            font-size: 1.2rem;
-            cursor: pointer; 
-            padding: 8px; 
-            border-radius: 6px;
-            display: flex; 
-            align-items: center; 
-            justify-content: center;
-            width: 40px; 
-            height: 40px;
-            transition: all 0.2s;
-        }
-        .sidebar-toggle:hover { 
-            background-color: #f3f4f6; 
-            color: #16a34a; 
-        }
+    /* Section Styles */
+    .section {
+        background: white;
+        padding: 24px;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        margin-bottom: 24px;
+    }
 
-        .header-title-section { 
-            flex: 1; 
-        }
-        .header-title-section h1 { 
-            margin: 0 0 5px 0; 
-            color: #1f2937; 
-            font-size: 1.5rem;
-            white-space: nowrap; 
-            overflow: hidden; 
-            text-overflow: ellipsis;
-        }
-        .header-title-section p { 
-            color: #666; 
-            margin: 0; 
-            font-size: 0.9rem;
-            white-space: nowrap; 
-            overflow: hidden; 
-            text-overflow: ellipsis;
-        }
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
+        gap: 16px;
+    }
 
-        .header-right { 
-            display: flex; 
-            align-items: center; 
-            gap: 20px; 
-            flex-shrink: 0;
-        }
+    .section-header h3 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #111827;
+        margin: 0 0 4px 0;
+    }
 
-        .user-info { 
-            display: flex; 
-            align-items: center; 
-            gap: 15px; 
-            padding: 10px 15px; 
-            background: #f8fafb; 
-            border-radius: 8px; 
-            border: 1px solid #e5e7eb; 
-        }
+    .section-header p {
+        color: #6b7280;
+        font-size: 0.875rem;
+        margin: 0;
+    }
 
-        .user-name { 
-            color: #374151; 
-            font-weight: 500; 
-            font-size: 0.9rem; 
-        }
+    .record-harvest-button {
+        background: #111827;
+        color: white;
+        border: none;
+        padding: 12px 20px;
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 500;
+        font-size: 0.875rem;
+        transition: all 0.2s;
+    }
 
-        .notification-bell { 
-            position: relative; 
-            color: #6b7280; 
-            font-size: 1.2rem; 
-            cursor: pointer; 
-            transition: color 0.2s; 
-        }
-        .notification-bell:hover { color: #16a34a; }
-        .notification-bell::after {
-            content: '';
-            position: absolute;
-            top: -2px; right: -2px;
-            width: 8px; height: 8px;
-            background: #ef4444;
-            border-radius: 50%;
-            border: 2px solid white;
-        }
+    .record-harvest-button:hover {
+        background: #374151;
+        transform: translateY(-1px);
+    }
 
-        .logout-arrow { 
-            color: #6b7280; 
-            font-size: 1.1rem; 
-            cursor: pointer; 
-            transition: color 0.2s; 
-        }
-        .logout-arrow:hover { color: #ef4444; }
+    /* Filter Section */
+    .filter-section {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+        gap: 16px;
+    }
 
-        /* Metrics Cards */
-        .metrics {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 24px;
-            margin-bottom: 32px;
-        }
+    .filter-dropdown {
+        padding: 10px 16px;
+        border: 2px solid #e5e7eb;
+        border-radius: 8px;
+        background: white;
+        color: #374151;
+        font-size: 0.875rem;
+        cursor: pointer;
+        min-width: 200px;
+        transition: border-color 0.2s;
+    }
 
-        .metric-card {
-            background: white;
-            padding: 24px;
-            border-radius: 12px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            display: flex;
-            align-items: flex-start;
+    .filter-dropdown:focus {
+        border-color: #3b82f6;
+        outline: none;
+    }
+
+    .record-count {
+        color: #6b7280;
+        font-size: 0.875rem;
+    }
+
+    /* Table Styles */
+    .harvest-table-wrapper {
+        background: white;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid #e5e7eb;
+    }
+
+    .harvest-table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 800px;
+    }
+
+    .harvest-table thead {
+        background: #f8fafc;
+    }
+
+    .harvest-table th {
+        padding: 16px;
+        text-align: left;
+        font-weight: 600;
+        color: #374151;
+        font-size: 0.875rem;
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+    .harvest-table td {
+        padding: 16px;
+        border-bottom: 1px solid #f3f4f6;
+        color: #6b7280;
+        font-size: 0.875rem;
+    }
+
+    .harvest-table tbody tr:hover {
+        background-color: #f9fafb;
+    }
+
+    .harvest-table tbody tr:last-child td {
+        border-bottom: none;
+    }
+
+    /* Mobile Cards */
+    .harvest-cards {
+        display: none;
+    }
+
+    .harvest-card {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 16px;
+        border-left: 4px solid #10b981;
+    }
+
+    .harvest-card-header {
+        margin-bottom: 16px;
+    }
+
+    .harvest-card-title {
+        font-weight: 600;
+        color: #111827;
+        font-size: 1.125rem;
+        margin-bottom: 4px;
+    }
+
+    .harvest-card-details {
+        display: grid;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .harvest-card-detail {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid #f3f4f6;
+    }
+
+    .harvest-card-detail:last-child {
+        border-bottom: none;
+    }
+
+    .harvest-card-label {
+        color: #6b7280;
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+
+    .harvest-card-value {
+        color: #111827;
+        font-size: 0.875rem;
+        font-weight: 500;
+    }
+
+    .harvest-card-actions {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+    }
+
+    /* Status and Grade Styling */
+    .grade-a { color: #059669; font-weight: 600; }
+    .grade-b { color: #d97706; font-weight: 600; }
+    .grade-c { color: #dc2626; font-weight: 600; }
+
+    /* Action Buttons */
+    .action-btn {
+        border: none;
+        padding: 8px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.75rem;
+        font-weight: 500;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .action-btn-view { 
+        background: #eff6ff; 
+        color: #1d4ed8; 
+    }
+    .action-btn-view:hover { 
+        background: #dbeafe; 
+    }
+
+    .action-btn-edit { 
+        background: #f0fdf4; 
+        color: #166534; 
+    }
+    .action-btn-edit:hover { 
+        background: #dcfce7; 
+    }
+
+    .action-btn-delete { 
+        background: #fef2f2; 
+        color: #dc2626; 
+    }
+    .action-btn-delete:hover { 
+        background: #fee2e2; 
+    }
+
+    /* Modal Styles */
+    .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        z-index: 10000;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+    }
+
+    .modal-container {
+        background: white;
+        border-radius: 16px;
+        width: 100%;
+        max-width: 600px;
+        max-height: 90vh;
+        overflow: hidden;
+        box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .modal-header {
+        padding: 24px 24px 0 24px;
+        position: relative;
+    }
+
+    .modal-header h2 {
+        margin: 0 0 8px 0;
+        color: #111827;
+        font-size: 1.5rem;
+        font-weight: 600;
+    }
+
+    .modal-header p {
+        margin: 0 0 24px 0;
+        color: #6b7280;
+        font-size: 0.875rem;
+    }
+
+    .modal-close {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        background: #f3f4f6;
+        border: none;
+        font-size: 1.25rem;
+        color: #6b7280;
+        cursor: pointer;
+        padding: 8px;
+        line-height: 1;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        transition: all 0.2s;
+    }
+
+    .modal-close:hover {
+        background: #e5e7eb;
+        color: #374151;
+    }
+
+    .modal-body {
+        padding: 0 24px 24px 24px;
+        overflow-y: auto;
+        flex: 1;
+    }
+
+    .form-grid {
+        display: grid;
+        gap: 20px;
+    }
+
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+    }
+
+    .form-group {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .form-label {
+        font-weight: 500;
+        color: #111827;
+        margin-bottom: 6px;
+        font-size: 0.875rem;
+    }
+
+    .form-input,
+    .form-select,
+    .form-textarea {
+        width: 100%;
+        padding: 12px 16px;
+        border: 2px solid #e5e7eb;
+        border-radius: 8px;
+        font-size: 0.875rem;
+        color: #111827;
+        background: white;
+        transition: all 0.2s;
+    }
+
+    .form-input:focus,
+    .form-select:focus,
+    .form-textarea:focus {
+        border-color: #3b82f6;
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+
+    .form-textarea {
+        resize: vertical;
+        min-height: 80px;
+        font-family: inherit;
+    }
+
+    .form-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        margin-top: 24px;
+    }
+
+    .btn {
+        padding: 12px 24px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 0.875rem;
+        font-weight: 500;
+        transition: all 0.2s;
+        min-width: 100px;
+        border: 2px solid transparent;
+    }
+
+    .btn-secondary {
+        background: white;
+        color: #374151;
+        border-color: #e5e7eb;
+    }
+
+    .btn-secondary:hover {
+        background: #f9fafb;
+        border-color: #d1d5db;
+    }
+
+    .btn-primary {
+        background: #111827;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #374151;
+    }
+
+    /* Empty State */
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        background: white;
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+    }
+
+    .empty-state i {
+        font-size: 3rem;
+        color: #d1d5db;
+        margin-bottom: 20px;
+    }
+
+    .empty-state h4 {
+        color: #374151;
+        margin-bottom: 8px;
+        font-size: 1.125rem;
+    }
+
+    .empty-state p {
+        color: #6b7280;
+        margin-bottom: 24px;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 1024px) {
+        .form-row {
+            grid-template-columns: 1fr;
             gap: 16px;
-            position: relative;
-            overflow: hidden;
         }
 
-        .metric-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 4px;
-            height: 100%;
+        .metrics {
+            grid-template-columns: repeat(2, 1fr);
         }
+    }
 
-        .metric-card:nth-child(1)::before { background: #3b82f6; }
-        .metric-card:nth-child(2)::before { background: #10b981; }
-        .metric-card:nth-child(3)::before { background: #f59e0b; }
-        .metric-card:nth-child(4)::before { background: #8b5cf6; }
-
-        .metric-icon {
-            width: 48px;
-            height: 48px;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.25rem;
-            color: white;
-            flex-shrink: 0;
+    @media (max-width: 768px) {
+        .metrics { 
+            grid-template-columns: 1fr; 
+            gap: 12px; 
         }
-
-        .metric-card:nth-child(1) .metric-icon { background: #3b82f6; }
-        .metric-card:nth-child(2) .metric-icon { background: #10b981; }
-        .metric-card:nth-child(3) .metric-icon { background: #f59e0b; }
-        .metric-card:nth-child(4) .metric-icon { background: #8b5cf6; }
-
-        .metric-content { flex: 1; }
-        .metric-label { 
-            color: #6b7280; 
-            font-size: 0.875rem; 
-            font-weight: 500; 
-            margin-bottom: 8px;
+        
+        .metric-card { 
+            padding: 1rem; 
+            gap: 12px; 
         }
+        
         .metric-value { 
-            font-size: 2rem; 
-            font-weight: 700; 
-            color: #111827; 
-            margin-bottom: 4px;
-            line-height: 1; 
+            font-size: 1.5rem; 
         }
-        .metric-change { 
-            color: #6b7280; 
-            font-size: 0.75rem; 
-            font-weight: 500; 
-        }
-
-        /* Section Styles */
-        .section {
-            background: white;
-            padding: 24px;
-            border-radius: 12px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            margin-bottom: 24px;
+        
+        .section { 
+            padding: 15px; 
+            margin-bottom: 15px; 
         }
 
         .section-header {
-            display: flex;
-            justify-content: space-between;
+            flex-direction: column;
             align-items: flex-start;
-            margin-bottom: 24px;
-            flex-wrap: wrap;
             gap: 16px;
-        }
-
-        .section-header h3 {
-            font-size: 1.25rem;
-            font-weight: 600;
-            color: #111827;
-            margin: 0 0 4px 0;
-        }
-
-        .section-header p {
-            color: #6b7280;
-            font-size: 0.875rem;
-            margin: 0;
         }
 
         .record-harvest-button {
-            background: #111827;
-            color: white;
-            border: none;
-            padding: 12px 20px;
-            border-radius: 8px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-weight: 500;
-            font-size: 0.875rem;
-            transition: all 0.2s;
+            width: 100%;
+            justify-content: center;
         }
 
-        .record-harvest-button:hover {
-            background: #374151;
-            transform: translateY(-1px);
-        }
-
-        /* Filter Section */
         .filter-section {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 24px;
-            gap: 16px;
-        }
-
-        .filter-dropdown {
-            padding: 10px 16px;
-            border: 2px solid #e5e7eb;
-            border-radius: 8px;
-            background: white;
-            color: #374151;
-            font-size: 0.875rem;
-            cursor: pointer;
-            min-width: 200px;
-            transition: border-color 0.2s;
-        }
-
-        .filter-dropdown:focus {
-            border-color: #3b82f6;
-            outline: none;
-        }
-
-        .record-count {
-            color: #6b7280;
-            font-size: 0.875rem;
-        }
-
-        /* Table Styles */
-        .harvest-table-wrapper {
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            border: 1px solid #e5e7eb;
-        }
-
-        .harvest-table {
-            width: 100%;
-            border-collapse: collapse;
-            min-width: 800px;
-        }
-
-        .harvest-table thead {
-            background: #f8fafc;
-        }
-
-        .harvest-table th {
-            padding: 16px;
-            text-align: left;
-            font-weight: 600;
-            color: #374151;
-            font-size: 0.875rem;
-            border-bottom: 1px solid #e5e7eb;
-        }
-
-        .harvest-table td {
-            padding: 16px;
-            border-bottom: 1px solid #f3f4f6;
-            color: #6b7280;
-            font-size: 0.875rem;
-        }
-
-        .harvest-table tbody tr:hover {
-            background-color: #f9fafb;
-        }
-
-        .harvest-table tbody tr:last-child td {
-            border-bottom: none;
-        }
-
-        /* Mobile Cards */
-        .harvest-cards {
-            display: none;
-        }
-
-        .harvest-card {
-            background: white;
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 16px;
-            border-left: 4px solid #10b981;
-        }
-
-        .harvest-card-header {
-            margin-bottom: 16px;
-        }
-
-        .harvest-card-title {
-            font-weight: 600;
-            color: #111827;
-            font-size: 1.125rem;
-            margin-bottom: 4px;
-        }
-
-        .harvest-card-details {
-            display: grid;
+            flex-direction: column;
+            align-items: flex-start;
             gap: 12px;
-            margin-bottom: 20px;
         }
-
-        .harvest-card-detail {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 0;
-            border-bottom: 1px solid #f3f4f6;
-        }
-
-        .harvest-card-detail:last-child {
-            border-bottom: none;
-        }
-
-        .harvest-card-label {
-            color: #6b7280;
-            font-size: 0.875rem;
-            font-weight: 500;
-        }
-
-        .harvest-card-value {
-            color: #111827;
-            font-size: 0.875rem;
-            font-weight: 500;
-        }
-
-        .harvest-card-actions {
-            display: flex;
-            gap: 8px;
-            justify-content: center;
-        }
-
-        /* Status and Grade Styling */
-        .grade-a { color: #059669; font-weight: 600; }
-        .grade-b { color: #d97706; font-weight: 600; }
-        .grade-c { color: #dc2626; font-weight: 600; }
-
-        /* Action Buttons */
-        .action-btn {
-            border: none;
-            padding: 8px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.75rem;
-            font-weight: 500;
-            transition: all 0.2s;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .action-btn-view { 
-            background: #eff6ff; 
-            color: #1d4ed8; 
-        }
-        .action-btn-view:hover { 
-            background: #dbeafe; 
-        }
-
-        .action-btn-edit { 
-            background: #f0fdf4; 
-            color: #166534; 
-        }
-        .action-btn-edit:hover { 
-            background: #dcfce7; 
-        }
-
-        .action-btn-delete { 
-            background: #fef2f2; 
-            color: #dc2626; 
-        }
-        .action-btn-delete:hover { 
-            background: #fee2e2; 
-        }
-
-        /* Modal Styles */
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
+        
+        .filter-dropdown {
             width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            z-index: 10000;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
+        }
+
+        /* Show cards, hide table on mobile */
+        .harvest-table-wrapper {
+            overflow-x: auto;
+        }
+        
+        .harvest-table {
+            display: none;
+        }
+        
+        .harvest-cards {
+            display: block;
         }
 
         .modal-container {
-            background: white;
-            border-radius: 16px;
-            width: 100%;
-            max-width: 600px;
-            max-height: 90vh;
-            overflow: hidden;
-            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
-            display: flex;
-            flex-direction: column;
+            margin: 10px;
+            max-width: calc(100vw - 20px);
+            max-height: calc(100vh - 20px);
         }
 
         .modal-header {
-            padding: 24px 24px 0 24px;
-            position: relative;
-        }
-
-        .modal-header h2 {
-            margin: 0 0 8px 0;
-            color: #111827;
-            font-size: 1.5rem;
-            font-weight: 600;
-        }
-
-        .modal-header p {
-            margin: 0 0 24px 0;
-            color: #6b7280;
-            font-size: 0.875rem;
-        }
-
-        .modal-close {
-            position: absolute;
-            top: 16px;
-            right: 16px;
-            background: #f3f4f6;
-            border: none;
-            font-size: 1.25rem;
-            color: #6b7280;
-            cursor: pointer;
-            padding: 8px;
-            line-height: 1;
-            width: 32px;
-            height: 32px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 50%;
-            transition: all 0.2s;
-        }
-
-        .modal-close:hover {
-            background: #e5e7eb;
-            color: #374151;
+            padding: 20px 20px 0 20px;
         }
 
         .modal-body {
-            padding: 0 24px 24px 24px;
-            overflow-y: auto;
-            flex: 1;
+            padding: 0 20px 20px 20px;
         }
+    }
 
-        .form-grid {
-            display: grid;
-            gap: 20px;
-        }
-
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-        }
-
-        .form-group {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .form-label {
-            font-weight: 500;
-            color: #111827;
-            margin-bottom: 6px;
-            font-size: 0.875rem;
-        }
-
-        .form-input,
-        .form-select,
-        .form-textarea {
-            width: 100%;
-            padding: 12px 16px;
-            border: 2px solid #e5e7eb;
-            border-radius: 8px;
-            font-size: 0.875rem;
-            color: #111827;
-            background: white;
-            transition: all 0.2s;
-        }
-
-        .form-input:focus,
-        .form-select:focus,
-        .form-textarea:focus {
-            border-color: #3b82f6;
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-        }
-
-        .form-textarea {
-            resize: vertical;
-            min-height: 80px;
-            font-family: inherit;
-        }
-
-        .form-actions {
-            display: flex;
+    @media (max-width: 480px) {
+        .metrics {
+            grid-template-columns: 1fr;
             gap: 12px;
-            justify-content: flex-end;
-            margin-top: 24px;
         }
 
-        .btn {
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 0.875rem;
-            font-weight: 500;
-            transition: all 0.2s;
-            min-width: 100px;
-            border: 2px solid transparent;
+        .metric-card {
+            padding: 10px;
+            gap: 8px;
+            flex-direction: column;
+            align-items: flex-start;
         }
 
-        .btn-secondary {
-            background: white;
-            color: #374151;
-            border-color: #e5e7eb;
+        .metric-icon {
+            font-size: 1.8rem;
         }
 
-        .btn-secondary:hover {
-            background: #f9fafb;
-            border-color: #d1d5db;
+        .harvest-card {
+            padding: 10px;
+            font-size: 0.8rem;
         }
+    }
+</style>
+{% endblock %}
 
-        .btn-primary {
-            background: #111827;
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background: #374151;
-        }
-
-        /* Empty State */
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            background: white;
-            border-radius: 12px;
-            border: 1px solid #e5e7eb;
-        }
-
-        .empty-state i {
-            font-size: 3rem;
-            color: #d1d5db;
-            margin-bottom: 20px;
-        }
-
-        .empty-state h4 {
-            color: #374151;
-            margin-bottom: 8px;
-            font-size: 1.125rem;
-        }
-
-        .empty-state p {
-            color: #6b7280;
-            margin-bottom: 24px;
-        }
-
-        /* Toast Notification */
-        .toast {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 16px 24px;
-            border-radius: 8px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
-            z-index: 10001;
-            font-size: 0.875rem;
-            font-weight: 500;
-            transform: translateX(100%);
-            transition: transform 0.3s ease;
-            min-width: 300px;
-        }
-
-        .toast-success { background: #10b981; color: white; }
-        .toast-error { background: #ef4444; color: white; }
-        .toast-info { background: #3b82f6; color: white; }
-
-        .toast.show {
-            transform: translateX(0);
-        }
-
-        /* Responsive Design */
-        @media (max-width: 1024px) {
-            .form-row {
-                grid-template-columns: 1fr;
-                gap: 16px;
-            }
-
-            .metrics {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
-
-        @media (max-width: 768px) {
-            body, html { overflow-x: hidden; max-width: 100vw; }
-            .sidebar { 
-                transform: translateX(-100%); 
-            }
-            
-            .main-content { 
-                margin-left: 0; 
-                padding: 0.75rem; 
-                width: 100%; 
-                max-width: 100vw; 
-            }
-            .container { width: 100%; padding: 0; margin: 0; }
-            
-            .header { 
-                padding: 12px; 
-                margin-bottom: 15px; 
-                flex-wrap: wrap; 
-            }
-            
-            .metrics { 
-                grid-template-columns: 1fr; 
-                gap: 12px; 
-            }
-            
-            .metric-card { 
-                padding: 1rem; 
-                gap: 12px; 
-            }
-            
-            .metric-value { 
-                font-size: 1.5rem; 
-            }
-            
-            .section { 
-                padding: 15px; 
-                margin-bottom: 15px; 
-            }
-
-            .section-header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 16px;
-            }
-
-            .record-harvest-button {
-                width: 100%;
-                justify-content: center;
-            }
-
-            .filter-section {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 12px;
-            }
-            
-            .filter-dropdown {
-                width: 100%;
-            }
-
-            /* Show cards, hide table on mobile */
-            .harvest-table-wrapper {
-                overflow-x: auto;
-            }
-            
-            .harvest-table {
-                display: none;
-            }
-            
-            .harvest-cards {
-                display: block;
-            }
-
-            .modal-container {
-                margin: 10px;
-                max-width: calc(100vw - 20px);
-                max-height: calc(100vh - 20px);
-            }
-
-            .modal-header {
-                padding: 20px 20px 0 20px;
-            }
-
-            .modal-body {
-                padding: 0 20px 20px 20px;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .header { 
-                flex-direction: column; 
-                align-items: flex-start; 
-                gap: 10px; 
-            }
-            
-            .metrics {
-                grid-template-columns: 1fr;
-                gap: 12px;
-            }
-
-            .metric-card {
-                padding: 10px;
-                gap: 8px;
-                flex-direction: column;
-                align-items: flex-start;
-            }
-
-            .metric-icon {
-                font-size: 1.8rem;
-            }
-
-            .harvest-card {
-                padding: 10px;
-                font-size: 0.8rem;
-            }
-        }
-    </style>
-</head>
-<body>
-    <!-- Sidebar Overlay for Mobile -->
-    <div class="sidebar-overlay" id="sidebarOverlay"></div>
-
-    <!-- Sidebar -->
-    <div class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <h2>🌱 HarvestPro</h2>
+{% block content %}
+<!-- Harvest Statistics Metrics -->
+<div class="metrics">
+    <div class="metric-card">
+        <div class="metric-icon">
+            <i class="fas fa-weight-hanging"></i>
         </div>
-        <nav>
-            <ul class="nav-menu">
-                <li><a href="{% url 'monitoring:dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">📊 Dashboard</a></li>
-                <li><a href="{% url 'monitoring:farm_management' %}" class="{% if request.resolver_match.url_name == 'farm_management' %}active{% endif %}">🚜 Farm Management</a></li>
-                <li><a href="{% url 'monitoring:harvest_tracking' %}" class="{% if request.resolver_match.url_name == 'harvest_tracking' %}active{% endif %}">📋 Harvest Tracking</a></li>
-                <li><a href="{% url 'monitoring:analytics' %}" class="{% if request.resolver_match.url_name == 'analytics' %}active{% endif %}">📈 Analytics</a></li>
-                <li><a href="{% url 'monitoring:inventory' %}" class="{% if request.resolver_match.url_name == 'inventory' %}active{% endif %}">📦 Inventory</a></li>
-                <li><a href="{% url 'monitoring:reports' %}" class="{% if request.resolver_match.url_name == 'reports' %}active{% endif %}">📄 Reports</a></li>
-                <li><a href="{% url 'monitoring:notifications' %}" class="{% if request.resolver_match.url_name == 'notifications' %}active{% endif %}">🔔 Notifications</a></li>
-                <li><a href="{% url 'monitoring:user_management' %}" class="{% if request.resolver_match.url_name == 'user_management' %}active{% endif %}">👥 User Management</a></li>
-            </ul>
-        </nav>
+        <div class="metric-content">
+            <div class="metric-label">Total Harvested</div>
+            <div class="metric-value">2,847</div>
+            <div class="metric-change">tons this season</div>
+        </div>
+    </div>
+    
+    <div class="metric-card">
+        <div class="metric-icon">
+            <i class="fas fa-check-circle"></i>
+        </div>
+        <div class="metric-content">
+            <div class="metric-label">Completed</div>
+            <div class="metric-value">156</div>
+            <div class="metric-change">harvest activities</div>
+        </div>
+    </div>
+    
+    <div class="metric-card">
+        <div class="metric-icon">
+            <i class="fas fa-clock"></i>
+        </div>
+        <div class="metric-content">
+            <div class="metric-label">In Progress</div>
+            <div class="metric-value">8</div>
+            <div class="metric-change">active harvests</div>
+        </div>
+    </div>
+    
+    <div class="metric-card">
+        <div class="metric-icon">
+            <i class="fas fa-star"></i>
+        </div>
+        <div class="metric-content">
+            <div class="metric-label">Avg Quality</div>
+            <div class="metric-value">Grade A</div>
+            <div class="metric-change">quality standard</div>
+        </div>
+    </div>
+</div>
+
+<!-- Harvest Records Section -->
+<div class="section">
+    <div class="section-header">
+        <div>
+            <h3>Harvest Records</h3>
+            <p>All harvest records and activities</p>
+        </div>
+        <button class="record-harvest-button" onclick="showRecordHarvestModal()">
+            <i class="fas fa-plus"></i>
+            Record Harvest
+        </button>
     </div>
 
-    <!-- Main Content -->
-    <div class="main-content" id="mainContent">
-        <div class="container">
-            <!-- Header -->
-            <div class="header">
-                <div class="header-left">
-                    <button class="sidebar-toggle" id="sidebarToggle">
-                        <i class="fas fa-bars"></i>
-                    </button>
-                    <div class="header-title-section">
-                        <h1>Harvest Tracking</h1>
-                        <p>Track and manage all harvest activities</p>
-                    </div>
+    <!-- Filter Section -->
+    <div class="filter-section">
+        <select class="filter-dropdown" id="harvestFilter" onchange="filterHarvests()">
+            <option value="all">All Records</option>
+            <option value="today">Today's Harvests</option>
+            <option value="corn">Corn Only</option>
+            <option value="wheat">Wheat Only</option>
+            <option value="soybeans">Soybeans Only</option>
+            <option value="rice">Rice Only</option>
+        </select>
+        <div class="record-count">
+            Showing <span id="recordCount">8</span> of 156 harvest records
+        </div>
+    </div>
+
+    <!-- Desktop Table View -->
+    <div class="harvest-table-wrapper">
+        <table class="harvest-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Farm / Field</th>
+                    <th>Crop</th>
+                    <th>Quantity</th>
+                    <th>Quality</th>
+                    <th>Harvested By</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr data-crop="corn" data-date="2024-08-21">
+                    <td style="color: #111827; font-weight: 600;">Aug 21, 2024</td>
+                    <td>Green Valley Farm - North Field</td>
+                    <td>Corn</td>
+                    <td>245.0 tons</td>
+                    <td><span class="grade-a">Grade A</span></td>
+                    <td>Onabowale Rapheal</td>
+                    <td>
+                        <div style="display: flex; gap: 8px;">
+                            <button onclick="viewHarvest(1)" class="action-btn action-btn-view" title="View Details">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button onclick="editHarvest(1)" class="action-btn action-btn-edit" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button onclick="deleteHarvest(1)" class="action-btn action-btn-delete" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                <tr data-crop="wheat" data-date="2024-08-20">
+                    <td style="color: #111827; font-weight: 600;">Aug 20, 2024</td>
+                    <td>Sunny Acres - East Plot</td>
+                    <td>Wheat</td>
+                    <td>180.0 tons</td>
+                    <td><span class="grade-a">Grade A</span></td>
+                    <td>Toluwalase John</td>
+                    <td>
+                        <div style="display: flex; gap: 8px;">
+                            <button onclick="viewHarvest(2)" class="action-btn action-btn-view" title="View Details">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button onclick="editHarvest(2)" class="action-btn action-btn-edit" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button onclick="deleteHarvest(2)" class="action-btn action-btn-delete" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                <tr data-crop="soybeans" data-date="2024-08-19">
+                    <td style="color: #111827; font-weight: 600;">Aug 19, 2024</td>
+                    <td>Golden Fields - Section A</td>
+                    <td>Soybeans</td>
+                    <td>320.0 tons</td>
+                    <td><span class="grade-b">Grade B</span></td>
+                    <td>Olayemi Praise</td>
+                    <td>
+                        <div style="display: flex; gap: 8px;">
+                            <button onclick="viewHarvest(3)" class="action-btn action-btn-view" title="View Details">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button onclick="editHarvest(3)" class="action-btn action-btn-edit" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button onclick="deleteHarvest(3)" class="action-btn action-btn-delete" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                <tr data-crop="rice" data-date="2024-08-18">
+                    <td style="color: #111827; font-weight: 600;">Aug 18, 2024</td>
+                    <td>Meadow Farm - West Block</td>
+                    <td>Rice</td>
+                    <td>156.0 tons</td>
+                    <td><span class="grade-a">Grade A</span></td>
+                    <td>Adegoke Oluwaseyi</td>
+                    <td>
+                        <div style="display: flex; gap: 8px;">
+                            <button onclick="viewHarvest(4)" class="action-btn action-btn-view" title="View Details">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button onclick="editHarvest(4)" class="action-btn action-btn-edit" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button onclick="deleteHarvest(4)" class="action-btn action-btn-delete" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                <tr data-crop="corn" data-date="2024-08-17">
+                    <td style="color: #111827; font-weight: 600;">Aug 17, 2024</td>
+                    <td>Riverside Farm - Plot 3</td>
+                    <td>Corn</td>
+                    <td>195.5 tons</td>
+                    <td><span class="grade-a">Grade A</span></td>
+                    <td>Oladokun Quadri</td>
+                    <td>
+                        <div style="display: flex; gap: 8px;">
+                            <button onclick="viewHarvest(5)" class="action-btn action-btn-view" title="View Details">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button onclick="editHarvest(5)" class="action-btn action-btn-edit" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button onclick="deleteHarvest(5)" class="action-btn action-btn-delete" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                <tr data-crop="wheat" data-date="2024-08-16">
+                    <td style="color: #111827; font-weight: 600;">Aug 16, 2024</td>
+                    <td>Highland Farm - North Section</td>
+                    <td>Wheat</td>
+                    <td>275.2 tons</td>
+                    <td><span class="grade-b">Grade B</span></td>
+                    <td>Lamine Yamal</td>
+                    <td>
+                        <div style="display: flex; gap: 8px;">
+                            <button onclick="viewHarvest(6)" class="action-btn action-btn-view" title="View Details">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button onclick="editHarvest(6)" class="action-btn action-btn-edit" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button onclick="deleteHarvest(6)" class="action-btn action-btn-delete" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                <tr data-crop="soybeans" data-date="2024-08-15">
+                    <td style="color: #111827; font-weight: 600;">Aug 15, 2024</td>
+                    <td>Valley View - East Field</td>
+                    <td>Soybeans</td>
+                    <td>188.7 tons</td>
+                    <td><span class="grade-a">Grade A</span></td>
+                    <td>Robert Lewandowski</td>
+                    <td>
+                        <div style="display: flex; gap: 8px;">
+                            <button onclick="viewHarvest(7)" class="action-btn action-btn-view" title="View Details">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button onclick="editHarvest(7)" class="action-btn action-btn-edit" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button onclick="deleteHarvest(7)" class="action-btn action-btn-delete" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                <tr data-crop="rice" data-date="2024-08-14">
+                    <td style="color: #111827; font-weight: 600;">Aug 14, 2024</td>
+                    <td>Sunset Ranch - Block B</td>
+                    <td>Rice</td>
+                    <td>142.8 tons</td>
+                    <td><span class="grade-c">Grade C</span></td>
+                    <td>Jennifer Lee</td>
+                    <td>
+                        <div style="display: flex; gap: 8px;">
+                            <button onclick="viewHarvest(8)" class="action-btn action-btn-view" title="View Details">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                            <button onclick="editHarvest(8)" class="action-btn action-btn-edit" title="Edit">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button onclick="deleteHarvest(8)" class="action-btn action-btn-delete" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Mobile Cards View -->
+    <div class="harvest-cards">
+        <div class="harvest-card" data-crop="corn" data-date="2024-08-21">
+            <div class="harvest-card-header">
+                <div class="harvest-card-title">Green Valley Farm - North Field</div>
+            </div>
+            <div class="harvest-card-details">
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Date</span>
+                    <span class="harvest-card-value">Aug 21, 2024</span>
                 </div>
-                <div class="header-right">
-                    <div class="user-info">
-                        <span class="user-name">Admin</span>
-                        <i class="fas fa-bell notification-bell" title="Notifications"></i>
-                        <i class="fas fa-arrow-right logout-arrow" title="Logout"></i>
-                    </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Crop</span>
+                    <span class="harvest-card-value">Corn</span>
+                </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Quantity</span>
+                    <span class="harvest-card-value">245.0 tons</span>
+                </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Quality</span>
+                    <span class="harvest-card-value grade-a">Grade A</span>
+                </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Harvested By</span>
+                    <span class="harvest-card-value">Onabowale Rapheal</span>
                 </div>
             </div>
+            <div class="harvest-card-actions">
+                <button onclick="viewHarvest(1)" class="action-btn action-btn-view">
+                    <i class="fas fa-eye"></i> View
+                </button>
+                <button onclick="editHarvest(1)" class="action-btn action-btn-edit">
+                    <i class="fas fa-edit"></i> Edit
+                </button>
+                <button onclick="deleteHarvest(1)" class="action-btn action-btn-delete">
+                    <i class="fas fa-trash"></i> Delete
+                </button>
+            </div>
+        </div>
 
-            <!-- Harvest Statistics Metrics -->
-            <div class="metrics">
-                <div class="metric-card">
-                    <div class="metric-icon">
-                        <i class="fas fa-weight-hanging"></i>
-                    </div>
-                    <div class="metric-content">
-                        <div class="metric-label">Total Harvested</div>
-                        <div class="metric-value">2,847</div>
-                        <div class="metric-change">tons this season</div>
-                    </div>
+        <!-- Additional mobile cards -->
+        <div class="harvest-card" data-crop="wheat" data-date="2024-08-20">
+            <div class="harvest-card-header">
+                <div class="harvest-card-title">Sunny Acres - East Plot</div>
+            </div>
+            <div class="harvest-card-details">
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Date</span>
+                    <span class="harvest-card-value">Aug 20, 2024</span>
                 </div>
-                
-                <div class="metric-card">
-                    <div class="metric-icon">
-                        <i class="fas fa-check-circle"></i>
-                    </div>
-                    <div class="metric-content">
-                        <div class="metric-label">Completed</div>
-                        <div class="metric-value">156</div>
-                        <div class="metric-change">harvest activities</div>
-                    </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Crop</span>
+                    <span class="harvest-card-value">Wheat</span>
                 </div>
-                
-                <div class="metric-card">
-                    <div class="metric-icon">
-                        <i class="fas fa-clock"></i>
-                    </div>
-                    <div class="metric-content">
-                        <div class="metric-label">In Progress</div>
-                        <div class="metric-value">8</div>
-                        <div class="metric-change">active harvests</div>
-                    </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Quantity</span>
+                    <span class="harvest-card-value">180.0 tons</span>
                 </div>
-                
-                <div class="metric-card">
-                    <div class="metric-icon">
-                        <i class="fas fa-star"></i>
-                    </div>
-                    <div class="metric-content">
-                        <div class="metric-label">Avg Quality</div>
-                        <div class="metric-value">Grade A</div>
-                        <div class="metric-change">quality standard</div>
-                    </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Quality</span>
+                    <span class="harvest-card-value grade-a">Grade A</span>
+                </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Harvested By</span>
+                    <span class="harvest-card-value">Toluwalase John</span>
                 </div>
             </div>
+            <div class="harvest-card-actions">
+                <button onclick="viewHarvest(2)" class="action-btn action-btn-view">
+                    <i class="fas fa-eye"></i> View
+                </button>
+                <button onclick="editHarvest(2)" class="action-btn action-btn-edit">
+                    <i class="fas fa-edit"></i> Edit
+                </button>
+                <button onclick="deleteHarvest(2)" class="action-btn action-btn-delete">
+                    <i class="fas fa-trash"></i> Delete
+                </button>
+            </div>
+        </div>
 
-            <!-- Harvest Records Section -->
-            <div class="section">
-                <div class="section-header">
-                    <div>
-                        <h3>Harvest Records</h3>
-                        <p>All harvest records and activities</p>
+        <div class="harvest-card" data-crop="soybeans" data-date="2024-08-19">
+            <div class="harvest-card-header">
+                <div class="harvest-card-title">Golden Fields - Section A</div>
+            </div>
+            <div class="harvest-card-details">
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Date</span>
+                    <span class="harvest-card-value">Aug 19, 2024</span>
+                </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Crop</span>
+                    <span class="harvest-card-value">Soybeans</span>
+                </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Quantity</span>
+                    <span class="harvest-card-value">320.0 tons</span>
+                </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Quality</span>
+                    <span class="harvest-card-value grade-b">Grade B</span>
+                </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Harvested By</span>
+                    <span class="harvest-card-value">Olayemi Praise</span>
+                </div>
+            </div>
+            <div class="harvest-card-actions">
+                <button onclick="viewHarvest(3)" class="action-btn action-btn-view">
+                    <i class="fas fa-eye"></i> View
+                </button>
+                <button onclick="editHarvest(3)" class="action-btn action-btn-edit">
+                    <i class="fas fa-edit"></i> Edit
+                </button>
+                <button onclick="deleteHarvest(3)" class="action-btn action-btn-delete">
+                    <i class="fas fa-trash"></i> Delete
+                </button>
+            </div>
+        </div>
+
+        <div class="harvest-card" data-crop="rice" data-date="2024-08-18">
+            <div class="harvest-card-header">
+                <div class="harvest-card-title">Meadow Farm - West Block</div>
+            </div>
+            <div class="harvest-card-details">
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Date</span>
+                    <span class="harvest-card-value">Aug 18, 2024</span>
+                </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Crop</span>
+                    <span class="harvest-card-value">Rice</span>
+                </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Quantity</span>
+                    <span class="harvest-card-value">156.0 tons</span>
+                </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Quality</span>
+                    <span class="harvest-card-value grade-a">Grade A</span>
+                </div>
+                <div class="harvest-card-detail">
+                    <span class="harvest-card-label">Harvested By</span>
+                    <span class="harvest-card-value">Adegoke Oluwaseyi</span>
+                </div>
+            </div>
+            <div class="harvest-card-actions">
+                <button onclick="viewHarvest(4)" class="action-btn action-btn-view">
+                    <i class="fas fa-eye"></i> View
+                </button>
+                <button onclick="editHarvest(4)" class="action-btn action-btn-edit">
+                    <i class="fas fa-edit"></i> Edit
+                </button>
+                <button onclick="deleteHarvest(4)" class="action-btn action-btn-delete">
+                    <i class="fas fa-trash"></i> Delete
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Record Harvest Modal -->
+<div id="recordHarvestModal" class="modal">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h2>Record New Harvest</h2>
+            <p>Log harvest details including quantity, quality, and conditions</p>
+            <button class="modal-close" onclick="hideRecordHarvestModal()">&times;</button>
+        </div>
+        
+        <div class="modal-body">
+            <form id="recordHarvestForm" class="form-grid">
+                {% csrf_token %}
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Crop Type</label>
+                        <select name="crop" required class="form-select">
+                            <option value="" disabled selected>Select crop</option>
+                            <option value="corn">Corn</option>
+                            <option value="wheat">Wheat</option>
+                            <option value="soybeans">Soybeans</option>
+                            <option value="rice">Rice</option>
+                            <option value="barley">Barley</option>
+                        </select>
                     </div>
-                    <button class="record-harvest-button" onclick="showRecordHarvestModal()">
-                        <i class="fas fa-plus"></i>
-                        Record Harvest
-                    </button>
+
+                    <div class="form-group">
+                        <label class="form-label">Farm/Location</label>
+                        <select name="farm" required class="form-select">
+                            <option value="" disabled selected>Select farm</option>
+                            <option value="green-valley">Green Valley Farm</option>
+                            <option value="sunny-acres">Sunny Acres</option>
+                            <option value="golden-fields">Golden Fields</option>
+                            <option value="meadow-farm">Meadow Farm</option>
+                            <option value="riverside">Riverside Farm</option>
+                        </select>
+                    </div>
                 </div>
 
-                <!-- Filter Section -->
-                <div class="filter-section">
-                    <select class="filter-dropdown" id="harvestFilter" onchange="filterHarvests()">
-                        <option value="all">All Records</option>
-                        <option value="today">Today's Harvests</option>
-                        <option value="corn">Corn Only</option>
-                        <option value="wheat">Wheat Only</option>
-                        <option value="soybeans">Soybeans Only</option>
-                        <option value="rice">Rice Only</option>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Harvest Date</label>
+                        <input type="date" name="harvest_date" required class="form-input">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Quantity (tons)</label>
+                        <input type="number" name="quantity" placeholder="12.5" min="0" step="0.1" required class="form-input">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Quality Grade</label>
+                        <select name="quality_grade" required class="form-select">
+                            <option value="" disabled selected>Select quality grade</option>
+                            <option value="A">Grade A - Premium</option>
+                            <option value="B">Grade B - Good</option>
+                            <option value="C">Grade C - Average</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Weather Conditions</label>
+                        <input type="text" name="weather" placeholder="e.g., Sunny, Clear" class="form-input">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Harvested By</label>
+                    <select name="harvested_by" required class="form-select">
+                        <option value="" disabled selected>Select team</option>
+                        <option value="team-1">Team Alpha</option>
+                        <option value="team-2">Team Beta</option>
+                        <option value="team-3">Team Gamma</option>
+                        <option value="individual">Individual Worker</option>
                     </select>
-                    <div class="record-count">
-                        Showing <span id="recordCount">8</span> of 156 harvest records
-                    </div>
                 </div>
 
-                <!-- Desktop Table View -->
-                <div class="harvest-table-wrapper">
-                    <table class="harvest-table">
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Farm / Field</th>
-                                <th>Crop</th>
-                                <th>Quantity</th>
-                                <th>Quality</th>
-                                <th>Harvested By</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr data-crop="corn" data-date="2024-08-21">
-                                <td style="color: #111827; font-weight: 600;">Aug 21, 2024</td>
-                                <td>Green Valley Farm - North Field</td>
-                                <td>Corn</td>
-                                <td>245.0 tons</td>
-                                <td><span class="grade-a">Grade A</span></td>
-                                <td>Onabowale Rapheal</td>
-                                <td>
-                                    <div style="display: flex; gap: 8px;">
-                                        <button onclick="viewHarvest(1)" class="action-btn action-btn-view" title="View Details">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                        <button onclick="editHarvest(1)" class="action-btn action-btn-edit" title="Edit">
-                                            <i class="fas fa-edit"></i>
-                                        </button>
-                                        <button onclick="deleteHarvest(1)" class="action-btn action-btn-delete" title="Delete">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr data-crop="wheat" data-date="2024-08-20">
-                                <td style="color: #111827; font-weight: 600;">Aug 20, 2024</td>
-                                <td>Sunny Acres - East Plot</td>
-                                <td>Wheat</td>
-                                <td>180.0 tons</td>
-                                <td><span class="grade-a">Grade A</span></td>
-                                <td>Toluwalase John</td>
-                                <td>
-                                    <div style="display: flex; gap: 8px;">
-                                        <button onclick="viewHarvest(2)" class="action-btn action-btn-view" title="View Details">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                        <button onclick="editHarvest(2)" class="action-btn action-btn-edit" title="Edit">
-                                            <i class="fas fa-edit"></i>
-                                        </button>
-                                        <button onclick="deleteHarvest(2)" class="action-btn action-btn-delete" title="Delete">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr data-crop="soybeans" data-date="2024-08-19">
-                                <td style="color: #111827; font-weight: 600;">Aug 19, 2024</td>
-                                <td>Golden Fields - Section A</td>
-                                <td>Soybeans</td>
-                                <td>320.0 tons</td>
-                                <td><span class="grade-b">Grade B</span></td>
-                                <td>Olayemi Praise</td>
-                                <td>
-                                    <div style="display: flex; gap: 8px;">
-                                        <button onclick="viewHarvest(3)" class="action-btn action-btn-view" title="View Details">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                        <button onclick="editHarvest(3)" class="action-btn action-btn-edit" title="Edit">
-                                            <i class="fas fa-edit"></i>
-                                        </button>
-                                        <button onclick="deleteHarvest(3)" class="action-btn action-btn-delete" title="Delete">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr data-crop="rice" data-date="2024-08-18">
-                                <td style="color: #111827; font-weight: 600;">Aug 18, 2024</td>
-                                <td>Meadow Farm - West Block</td>
-                                <td>Rice</td>
-                                <td>156.0 tons</td>
-                                <td><span class="grade-a">Grade A</span></td>
-                                <td>Adegoke Oluwaseyi</td>
-                                <td>
-                                    <div style="display: flex; gap: 8px;">
-                                        <button onclick="viewHarvest(4)" class="action-btn action-btn-view" title="View Details">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                        <button onclick="editHarvest(4)" class="action-btn action-btn-edit" title="Edit">
-                                            <i class="fas fa-edit"></i>
-                                        </button>
-                                        <button onclick="deleteHarvest(4)" class="action-btn action-btn-delete" title="Delete">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr data-crop="corn" data-date="2024-08-17">
-                                <td style="color: #111827; font-weight: 600;">Aug 17, 2024</td>
-                                <td>Riverside Farm - Plot 3</td>
-                                <td>Corn</td>
-                                <td>195.5 tons</td>
-                                <td><span class="grade-a">Grade A</span></td>
-                                <td>Oladokun Quadri</td>
-                                <td>
-                                    <div style="display: flex; gap: 8px;">
-                                        <button onclick="viewHarvest(5)" class="action-btn action-btn-view" title="View Details">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                        <button onclick="editHarvest(5)" class="action-btn action-btn-edit" title="Edit">
-                                            <i class="fas fa-edit"></i>
-                                        </button>
-                                        <button onclick="deleteHarvest(5)" class="action-btn action-btn-delete" title="Delete">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr data-crop="wheat" data-date="2024-08-16">
-                                <td style="color: #111827; font-weight: 600;">Aug 16, 2024</td>
-                                <td>Highland Farm - North Section</td>
-                                <td>Wheat</td>
-                                <td>275.2 tons</td>
-                                <td><span class="grade-b">Grade B</span></td>
-                                <td>Lamine Yamal</td>
-                                <td>
-                                    <div style="display: flex; gap: 8px;">
-                                        <button onclick="viewHarvest(6)" class="action-btn action-btn-view" title="View Details">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                        <button onclick="editHarvest(6)" class="action-btn action-btn-edit" title="Edit">
-                                            <i class="fas fa-edit"></i>
-                                        </button>
-                                        <button onclick="deleteHarvest(6)" class="action-btn action-btn-delete" title="Delete">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr data-crop="soybeans" data-date="2024-08-15">
-                                <td style="color: #111827; font-weight: 600;">Aug 15, 2024</td>
-                                <td>Valley View - East Field</td>
-                                <td>Soybeans</td>
-                                <td>188.7 tons</td>
-                                <td><span class="grade-a">Grade A</span></td>
-                                <td>Robert Lewandowski</td>
-                                <td>
-                                    <div style="display: flex; gap: 8px;">
-                                        <button onclick="viewHarvest(7)" class="action-btn action-btn-view" title="View Details">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                        <button onclick="editHarvest(7)" class="action-btn action-btn-edit" title="Edit">
-                                            <i class="fas fa-edit"></i>
-                                        </button>
-                                        <button onclick="deleteHarvest(7)" class="action-btn action-btn-delete" title="Delete">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr data-crop="rice" data-date="2024-08-14">
-                                <td style="color: #111827; font-weight: 600;">Aug 14, 2024</td>
-                                <td>Sunset Ranch - Block B</td>
-                                <td>Rice</td>
-                                <td>142.8 tons</td>
-                                <td><span class="grade-c">Grade C</span></td>
-                                <td>Jennifer Lee</td>
-                                <td>
-                                    <div style="display: flex; gap: 8px;">
-                                        <button onclick="viewHarvest(8)" class="action-btn action-btn-view" title="View Details">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                        <button onclick="editHarvest(8)" class="action-btn action-btn-edit" title="Edit">
-                                            <i class="fas fa-edit"></i>
-                                        </button>
-                                        <button onclick="deleteHarvest(8)" class="action-btn action-btn-delete" title="Delete">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <div class="form-group">
+                    <label class="form-label">Notes</label>
+                    <textarea name="notes" rows="3" placeholder="Additional harvest notes..." class="form-textarea"></textarea>
                 </div>
 
-                <!-- Mobile Cards View -->
-                <div class="harvest-cards">
-                    <div class="harvest-card" data-crop="corn" data-date="2024-08-21">
-                        <div class="harvest-card-header">
-                            <div class="harvest-card-title">Green Valley Farm - North Field</div>
-                        </div>
-                        <div class="harvest-card-details">
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Date</span>
-                                <span class="harvest-card-value">Aug 21, 2024</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Crop</span>
-                                <span class="harvest-card-value">Corn</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quantity</span>
-                                <span class="harvest-card-value">245.0 tons</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quality</span>
-                                <span class="harvest-card-value grade-a">Grade A</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Harvested By</span>
-                                <span class="harvest-card-value">Onabowale Rapheal</span>
-                            </div>
-                        </div>
-                        <div class="harvest-card-actions">
-                            <button onclick="viewHarvest(1)" class="action-btn action-btn-view">
-                                <i class="fas fa-eye"></i> View
-                            </button>
-                            <button onclick="editHarvest(1)" class="action-btn action-btn-edit">
-                                <i class="fas fa-edit"></i> Edit
-                            </button>
-                            <button onclick="deleteHarvest(1)" class="action-btn action-btn-delete">
-                                <i class="fas fa-trash"></i> Delete
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="harvest-card" data-crop="wheat" data-date="2024-08-20">
-                        <div class="harvest-card-header">
-                            <div class="harvest-card-title">Sunny Acres - East Plot</div>
-                        </div>
-                        <div class="harvest-card-details">
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Date</span>
-                                <span class="harvest-card-value">Aug 20, 2024</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Crop</span>
-                                <span class="harvest-card-value">Wheat</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quantity</span>
-                                <span class="harvest-card-value">180.0 tons</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quality</span>
-                                <span class="harvest-card-value grade-a">Grade A</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Harvested By</span>
-                                <span class="harvest-card-value">Toluwalase John</span>
-                            </div>
-                        </div>
-                        <div class="harvest-card-actions">
-                            <button onclick="viewHarvest(2)" class="action-btn action-btn-view">
-                                <i class="fas fa-eye"></i> View
-                            </button>
-                            <button onclick="editHarvest(2)" class="action-btn action-btn-edit">
-                                <i class="fas fa-edit"></i> Edit
-                            </button>
-                            <button onclick="deleteHarvest(2)" class="action-btn action-btn-delete">
-                                <i class="fas fa-trash"></i> Delete
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="harvest-card" data-crop="soybeans" data-date="2024-08-19">
-                        <div class="harvest-card-header">
-                            <div class="harvest-card-title">Golden Fields - Section A</div>
-                        </div>
-                        <div class="harvest-card-details">
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Date</span>
-                                <span class="harvest-card-value">Aug 19, 2024</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Crop</span>
-                                <span class="harvest-card-value">Soybeans</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quantity</span>
-                                <span class="harvest-card-value">320.0 tons</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quality</span>
-                                <span class="harvest-card-value grade-b">Grade B</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Harvested By</span>
-                                <span class="harvest-card-value">Olayemi Praise</span>
-                            </div>
-                        </div>
-                        <div class="harvest-card-actions">
-                            <button onclick="viewHarvest(3)" class="action-btn action-btn-view">
-                                <i class="fas fa-eye"></i> View
-                            </button>
-                            <button onclick="editHarvest(3)" class="action-btn action-btn-edit">
-                                <i class="fas fa-edit"></i> Edit
-                            </button>
-                            <button onclick="deleteHarvest(3)" class="action-btn action-btn-delete">
-                                <i class="fas fa-trash"></i> Delete
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="harvest-card" data-crop="rice" data-date="2024-08-18">
-                        <div class="harvest-card-header">
-                            <div class="harvest-card-title">Meadow Farm - West Block</div>
-                        </div>
-                        <div class="harvest-card-details">
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Date</span>
-                                <span class="harvest-card-value">Aug 18, 2024</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Crop</span>
-                                <span class="harvest-card-value">Rice</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quantity</span>
-                                <span class="harvest-card-value">156.0 tons</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quality</span>
-                                <span class="harvest-card-value grade-a">Grade A</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Harvested By</span>
-                                <span class="harvest-card-value">Adegoke Oluwaseyi</span>
-                            </div>
-                        </div>
-                        <div class="harvest-card-actions">
-                            <button onclick="viewHarvest(4)" class="action-btn action-btn-view">
-                                <i class="fas fa-eye"></i> View
-                            </button>
-                            <button onclick="editHarvest(4)" class="action-btn action-btn-edit">
-                                <i class="fas fa-edit"></i> Edit
-                            </button>
-                            <button onclick="deleteHarvest(4)" class="action-btn action-btn-delete">
-                                <i class="fas fa-trash"></i> Delete
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="harvest-card" data-crop="corn" data-date="2024-08-17">
-                        <div class="harvest-card-header">
-                            <div class="harvest-card-title">Riverside Farm - Plot 3</div>
-                        </div>
-                        <div class="harvest-card-details">
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Date</span>
-                                <span class="harvest-card-value">Aug 17, 2024</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Crop</span>
-                                <span class="harvest-card-value">Corn</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quantity</span>
-                                <span class="harvest-card-value">195.5 tons</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quality</span>
-                                <span class="harvest-card-value grade-a">Grade A</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Harvested By</span>
-                                <span class="harvest-card-value">Oladokun Quadri</span>
-                            </div>
-                        </div>
-                        <div class="harvest-card-actions">
-                            <button onclick="viewHarvest(5)" class="action-btn action-btn-view">
-                                <i class="fas fa-eye"></i> View
-                            </button>
-                            <button onclick="editHarvest(5)" class="action-btn action-btn-edit">
-                                <i class="fas fa-edit"></i> Edit
-                            </button>
-                            <button onclick="deleteHarvest(5)" class="action-btn action-btn-delete">
-                                <i class="fas fa-trash"></i> Delete
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="harvest-card" data-crop="wheat" data-date="2024-08-16">
-                        <div class="harvest-card-header">
-                            <div class="harvest-card-title">Highland Farm - North Section</div>
-                        </div>
-                        <div class="harvest-card-details">
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Date</span>
-                                <span class="harvest-card-value">Aug 16, 2024</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Crop</span>
-                                <span class="harvest-card-value">Wheat</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quantity</span>
-                                <span class="harvest-card-value">275.2 tons</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quality</span>
-                                <span class="harvest-card-value grade-b">Grade B</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Harvested By</span>
-                                <span class="harvest-card-value">Lamine Yamal</span>
-                            </div>
-                        </div>
-                        <div class="harvest-card-actions">
-                            <button onclick="viewHarvest(6)" class="action-btn action-btn-view">
-                                <i class="fas fa-eye"></i> View
-                            </button>
-                            <button onclick="editHarvest(6)" class="action-btn action-btn-edit">
-                                <i class="fas fa-edit"></i> Edit
-                            </button>
-                            <button onclick="deleteHarvest(6)" class="action-btn action-btn-delete">
-                                <i class="fas fa-trash"></i> Delete
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="harvest-card" data-crop="soybeans" data-date="2024-08-15">
-                        <div class="harvest-card-header">
-                            <div class="harvest-card-title">Valley View - East Field</div>
-                        </div>
-                        <div class="harvest-card-details">
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Date</span>
-                                <span class="harvest-card-value">Aug 15, 2024</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Crop</span>
-                                <span class="harvest-card-value">Soybeans</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quantity</span>
-                                <span class="harvest-card-value">188.7 tons</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quality</span>
-                                <span class="harvest-card-value grade-a">Grade A</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Harvested By</span>
-                                <span class="harvest-card-value">Robert Lewandowski</span>
-                            </div>
-                        </div>
-                        <div class="harvest-card-actions">
-                            <button onclick="viewHarvest(7)" class="action-btn action-btn-view">
-                                <i class="fas fa-eye"></i> View
-                            </button>
-                            <button onclick="editHarvest(7)" class="action-btn action-btn-edit">
-                                <i class="fas fa-edit"></i> Edit
-                            </button>
-                            <button onclick="deleteHarvest(7)" class="action-btn action-btn-delete">
-                                <i class="fas fa-trash"></i> Delete
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="harvest-card" data-crop="rice" data-date="2024-08-14">
-                        <div class="harvest-card-header">
-                            <div class="harvest-card-title">Sunset Ranch - Block B</div>
-                        </div>
-                        <div class="harvest-card-details">
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Date</span>
-                                <span class="harvest-card-value">Aug 14, 2024</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Crop</span>
-                                <span class="harvest-card-value">Rice</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quantity</span>
-                                <span class="harvest-card-value">142.8 tons</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Quality</span>
-                                <span class="harvest-card-value grade-c">Grade C</span>
-                            </div>
-                            <div class="harvest-card-detail">
-                                <span class="harvest-card-label">Harvested By</span>
-                                <span class="harvest-card-value">Jennifer Lee</span>
-                            </div>
-                        </div>
-                        <div class="harvest-card-actions">
-                            <button onclick="viewHarvest(8)" class="action-btn action-btn-view">
-                                <i class="fas fa-eye"></i> View
-                            </button>
-                            <button onclick="editHarvest(8)" class="action-btn action-btn-edit">
-                                <i class="fas fa-edit"></i> Edit
-                            </button>
-                            <button onclick="deleteHarvest(8)" class="action-btn action-btn-delete">
-                                <i class="fas fa-trash"></i> Delete
-                            </button>
-                        </div>
-                    </div>
+                <div class="form-actions">
+                    <button type="button" onclick="hideRecordHarvestModal()" class="btn btn-secondary">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Record Harvest</button>
                 </div>
-            </div>
-
-            <!-- Record Harvest Modal -->
-            <div id="recordHarvestModal" class="modal">
-                <div class="modal-container">
-                    <div class="modal-header">
-                        <h2>Record New Harvest</h2>
-                        <p>Log harvest details including quantity, quality, and conditions</p>
-                        <button class="modal-close" onclick="hideRecordHarvestModal()">&times;</button>
-                    </div>
-                    
-                    <div class="modal-body">
-                        <form id="recordHarvestForm" class="form-grid">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label class="form-label">Crop Type</label>
-                                    <select name="crop" required class="form-select">
-                                        <option value="" disabled selected>Select crop</option>
-                                        <option value="corn">Corn</option>
-                                        <option value="wheat">Wheat</option>
-                                        <option value="soybeans">Soybeans</option>
-                                        <option value="rice">Rice</option>
-                                        <option value="barley">Barley</option>
-                                    </select>
-                                </div>
-
-                                <div class="form-group">
-                                    <label class="form-label">Farm/Location</label>
-                                    <select name="farm" required class="form-select">
-                                        <option value="" disabled selected>Select farm</option>
-                                        <option value="green-valley">Green Valley Farm</option>
-                                        <option value="sunny-acres">Sunny Acres</option>
-                                        <option value="golden-fields">Golden Fields</option>
-                                        <option value="meadow-farm">Meadow Farm</option>
-                                        <option value="riverside">Riverside Farm</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label class="form-label">Harvest Date</label>
-                                    <input type="date" name="harvest_date" required class="form-input">
-                                </div>
-
-                                <div class="form-group">
-                                    <label class="form-label">Quantity (tons)</label>
-                                    <input type="number" name="quantity" placeholder="12.5" min="0" step="0.1" required class="form-input">
-                                </div>
-                            </div>
-
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label class="form-label">Quality Grade</label>
-                                    <select name="quality_grade" required class="form-select">
-                                        <option value="" disabled selected>Select quality grade</option>
-                                        <option value="A">Grade A - Premium</option>
-                                        <option value="B">Grade B - Good</option>
-                                        <option value="C">Grade C - Average</option>
-                                    </select>
-                                </div>
-
-                                <div class="form-group">
-                                    <label class="form-label">Weather Conditions</label>
-                                    <input type="text" name="weather" placeholder="e.g., Sunny, Clear" class="form-input">
-                                </div>
-                            </div>
-
-                            <div class="form-group">
-                                <label class="form-label">Harvested By</label>
-                                <select name="harvested_by" required class="form-select">
-                                    <option value="" disabled selected>Select team</option>
-                                    <option value="team-1">Team Alpha</option>
-                                    <option value="team-2">Team Beta</option>
-                                    <option value="team-3">Team Gamma</option>
-                                    <option value="individual">Individual Worker</option>
-                                </select>
-                            </div>
-
-                            <div class="form-group">
-                                <label class="form-label">Notes</label>
-                                <textarea name="notes" rows="3" placeholder="Additional harvest notes..." class="form-textarea"></textarea>
-                            </div>
-
-                            <div class="form-actions">
-                                <button type="button" onclick="hideRecordHarvestModal()" class="btn btn-secondary">Cancel</button>
-                                <button type="submit" class="btn btn-primary">Record Harvest</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
+            </form>
         </div>
     </div>
+</div>
+{% endblock %}
 
-    <script>
-        // Sidebar functionality
-        document.addEventListener('DOMContentLoaded', function() {
-            const sidebar = document.getElementById('sidebar');
-            const sidebarToggle = document.getElementById('sidebarToggle');
-            const sidebarOverlay = document.getElementById('sidebarOverlay');
-            const mainContent = document.getElementById('mainContent');
+{% block extra_js %}
+<script>
+    // Set today's date as default
+    document.addEventListener('DOMContentLoaded', function() {
+        const today = new Date().toISOString().split('T')[0];
+        const harvestDateInput = document.querySelector('input[name="harvest_date"]');
+        if (harvestDateInput) {
+            harvestDateInput.value = today;
+        }
 
-            let isMobile = window.innerWidth <= 768;
+        // Show welcome toast
+        setTimeout(() => {
+            showToast('Harvest tracking system loaded successfully', 'success');
+        }, 500);
 
-            function checkMobile() {
-                isMobile = window.innerWidth <= 768;
-                document.body.classList.toggle('mobile-view', isMobile);
-            }
-
-            function toggleSidebar() {
-                if (isMobile) {
-                    sidebar.classList.toggle('mobile-open');
-                    sidebarOverlay.classList.toggle('active');
-                } else {
-                    sidebar.classList.toggle('collapsed');
-                    mainContent.classList.toggle('expanded');
-                }
-            }
-
-            function closeMobileSidebar() {
-                if (isMobile) {
-                    sidebar.classList.remove('mobile-open');
-                    sidebarOverlay.classList.remove('active');
-                }
-            }
-
-            sidebarToggle.addEventListener('click', toggleSidebar);
-            sidebarOverlay.addEventListener('click', closeMobileSidebar);
-
-            const navLinks = document.querySelectorAll('.nav-menu a');
-            navLinks.forEach(link => link.addEventListener('click', closeMobileSidebar));
-
-            window.addEventListener('resize', function() {
-                checkMobile();
-                if (isMobile) {
-                    sidebar.classList.remove('collapsed');
-                    mainContent.classList.remove('expanded');
-                } else {
-                    sidebar.classList.remove('mobile-open');
-                    sidebarOverlay.classList.remove('active');
-                }
-            });
-
-            checkMobile();
-
-            // Set today's date as default
-            const today = new Date().toISOString().split('T')[0];
-            const harvestDateInput = document.querySelector('input[name="harvest_date"]');
-            if (harvestDateInput) {
-                harvestDateInput.value = today;
-            }
-
-            // Show welcome toast
+        // Add subtle animations to cards on load
+        const cards = document.querySelectorAll('.metric-card, .harvest-card, .section');
+        cards.forEach((card, index) => {
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(20px)';
+            card.style.transition = 'all 0.6s ease';
+            
             setTimeout(() => {
-                showToast('Harvest tracking system loaded successfully', 'success');
-            }, 500);
+                card.style.opacity = '1';
+                card.style.transform = 'translateY(0)';
+            }, index * 100);
         });
+    });
 
-        // Modal Functions
-        function showRecordHarvestModal() {
-            const modal = document.getElementById('recordHarvestModal');
-            modal.style.display = 'flex';
-            document.body.style.overflow = 'hidden';
-        }
+    // Modal Functions
+    function showRecordHarvestModal() {
+        const modal = document.getElementById('recordHarvestModal');
+        modal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }
 
-        function hideRecordHarvestModal() {
-            const modal = document.getElementById('recordHarvestModal');
-            modal.style.display = 'none';
-            document.body.style.overflow = 'auto';
-            
-            // Reset form
-            const form = document.getElementById('recordHarvestForm');
-            form.reset();
-            
-            // Reset to today's date
-            const today = new Date().toISOString().split('T')[0];
-            document.querySelector('input[name="harvest_date"]').value = today;
-        }
+    function hideRecordHarvestModal() {
+        const modal = document.getElementById('recordHarvestModal');
+        modal.style.display = 'none';
+        document.body.style.overflow = 'auto';
+        
+        // Reset form
+        const form = document.getElementById('recordHarvestForm');
+        form.reset();
+        
+        // Reset to today's date
+        const today = new Date().toISOString().split('T')[0];
+        document.querySelector('input[name="harvest_date"]').value = today;
+    }
 
-        // Filter Functions
-        function filterHarvests() {
-            const filter = document.getElementById('harvestFilter').value;
-            const today = new Date().toISOString().split('T')[0];
+    // Filter Functions
+    function filterHarvests() {
+        const filter = document.getElementById('harvestFilter').value;
+        const today = new Date().toISOString().split('T')[0];
+        
+        const tableRows = document.querySelectorAll('.harvest-table tbody tr');
+        const cardElements = document.querySelectorAll('.harvest-card');
+        
+        let visibleCount = 0;
+        
+        // Filter table rows
+        tableRows.forEach(row => {
+            let show = false;
+            const crop = row.dataset.crop;
+            const date = row.dataset.date;
             
-            const tableRows = document.querySelectorAll('.harvest-table tbody tr');
-            const cardElements = document.querySelectorAll('.harvest-card');
-            
-            let visibleCount = 0;
-            
-            // Filter table rows
-            tableRows.forEach(row => {
-                let show = false;
-                const crop = row.dataset.crop;
-                const date = row.dataset.date;
-                
-                switch(filter) {
-                    case 'all':
-                        show = true;
-                        break;
-                    case 'today':
-                        show = date === today;
-                        break;
-                    case 'corn':
-                        show = crop === 'corn';
-                        break;
-                    case 'wheat':
-                        show = crop === 'wheat';
-                        break;
-                    case 'soybeans':
-                        show = crop === 'soybeans';
-                        break;
-                    case 'rice':
-                        show = crop === 'rice';
-                        break;
-                    default:
-                        show = true;
-                }
-                
-                row.style.display = show ? 'table-row' : 'none';
-                if (show) visibleCount++;
-            });
-            
-            // Filter mobile cards
-            cardElements.forEach(card => {
-                let show = false;
-                const crop = card.dataset.crop;
-                const date = card.dataset.date;
-                
-                switch(filter) {
-                    case 'all':
-                        show = true;
-                        break;
-                    case 'today':
-                        show = date === today;
-                        break;
-                    case 'corn':
-                        show = crop === 'corn';
-                        break;
-                    case 'wheat':
-                        show = crop === 'wheat';
-                        break;
-                    case 'soybeans':
-                        show = crop === 'soybeans';
-                        break;
-                    case 'rice':
-                        show = crop === 'rice';
-                        break;
-                    default:
-                        show = true;
-                }
-                
-                card.style.display = show ? 'block' : 'none';
-            });
-            
-            // Update count
-            document.getElementById('recordCount').textContent = visibleCount;
-        }
-
-        // Action Functions
-        function viewHarvest(harvestId) {
-            showToast(`Viewing harvest details for ID: ${harvestId}`, 'info');
-            // In a real application, this would open a detailed view modal
-        }
-
-        function editHarvest(harvestId) {
-            showToast(`Opening edit form for harvest ID: ${harvestId}`, 'info');
-            // In a real application, this would populate the form with existing data
-            showRecordHarvestModal();
-        }
-
-        function deleteHarvest(harvestId) {
-            if (confirm('Are you sure you want to delete this harvest record? This action cannot be undone.')) {
-                showToast('Harvest record deleted successfully', 'success');
-                // In a real application, this would make an API call and remove the row/card
-                // For demo purposes, we'll just show the toast
-            }
-        }
-
-        // Form Submission
-        document.getElementById('recordHarvestForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            
-            // Get form data
-            const formData = new FormData(this);
-            const data = Object.fromEntries(formData.entries());
-            
-            // Basic validation
-            if (!data.crop || !data.farm || !data.harvest_date || !data.quantity || !data.quality_grade || !data.harvested_by) {
-                showToast('Please fill in all required fields.', 'error');
-                return;
+            switch(filter) {
+                case 'all':
+                    show = true;
+                    break;
+                case 'today':
+                    show = date === today;
+                    break;
+                case 'corn':
+                    show = crop === 'corn';
+                    break;
+                case 'wheat':
+                    show = crop === 'wheat';
+                    break;
+                case 'soybeans':
+                    show = crop === 'soybeans';
+                    break;
+                case 'rice':
+                    show = crop === 'rice';
+                    break;
+                default:
+                    show = true;
             }
             
-            // Validate quantity is positive
-            if (parseFloat(data.quantity) <= 0) {
-                showToast('Quantity must be greater than 0.', 'error');
-                return;
+            row.style.display = show ? 'table-row' : 'none';
+            if (show) visibleCount++;
+        });
+        
+        // Filter mobile cards
+        cardElements.forEach(card => {
+            let show = false;
+            const crop = card.dataset.crop;
+            const date = card.dataset.date;
+            
+            switch(filter) {
+                case 'all':
+                    show = true;
+                    break;
+                case 'today':
+                    show = date === today;
+                    break;
+                case 'corn':
+                    show = crop === 'corn';
+                    break;
+                case 'wheat':
+                    show = crop === 'wheat';
+                    break;
+                case 'soybeans':
+                    show = crop === 'soybeans';
+                    break;
+                case 'rice':
+                    show = crop === 'rice';
+                    break;
+                default:
+                    show = true;
             }
             
-            // Validate date is not in the future
-            const selectedDate = new Date(data.harvest_date);
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            
-            if (selectedDate > today) {
-                showToast('Harvest date cannot be in the future.', 'error');
-                return;
-            }
-            
-            // Success simulation
-            console.log('Harvest data to submit:', data);
-            showToast('Harvest recorded successfully!', 'success');
+            card.style.display = show ? 'block' : 'none';
+        });
+        
+        // Update count
+        document.getElementById('recordCount').textContent = visibleCount;
+    }
+
+    // Action Functions
+    function viewHarvest(harvestId) {
+        showToast(`Viewing harvest details for ID: ${harvestId}`, 'info');
+    }
+
+    function editHarvest(harvestId) {
+        showToast(`Opening edit form for harvest ID: ${harvestId}`, 'info');
+        showRecordHarvestModal();
+    }
+
+    function deleteHarvest(harvestId) {
+        if (confirm('Are you sure you want to delete this harvest record? This action cannot be undone.')) {
+            showToast('Harvest record deleted successfully', 'success');
+        }
+    }
+
+    // Form Submission
+    document.getElementById('recordHarvestForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        // Get form data
+        const formData = new FormData(this);
+        const data = Object.fromEntries(formData.entries());
+        
+        // Basic validation
+        if (!data.crop || !data.farm || !data.harvest_date || !data.quantity || !data.quality_grade || !data.harvested_by) {
+            showToast('Please fill in all required fields.', 'error');
+            return;
+        }
+        
+        // Validate quantity is positive
+        if (parseFloat(data.quantity) <= 0) {
+            showToast('Quantity must be greater than 0.', 'error');
+            return;
+        }
+        
+        // Validate date is not in the future
+        const selectedDate = new Date(data.harvest_date);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        if (selectedDate > today) {
+            showToast('Harvest date cannot be in the future.', 'error');
+            return;
+        }
+        
+        // Success simulation
+        console.log('Harvest data to submit:', data);
+        showToast('Harvest recorded successfully!', 'success');
+        hideRecordHarvestModal();
+    });
+
+    // Close modal when clicking outside
+    document.getElementById('recordHarvestModal').addEventListener('click', function(e) {
+        if (e.target === this) {
             hideRecordHarvestModal();
-            
-            // In a real application, you would:
-            // 1. Send data to backend API
-            // 2. Update the metrics
-            // 3. Add new row to table/card to list
-            // 4. Refresh the page or update dynamically
-        });
-
-        // Close modal when clicking outside
-        document.getElementById('recordHarvestModal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                hideRecordHarvestModal();
-            }
-        });
-
-        // Keyboard navigation
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-                hideRecordHarvestModal();
-            }
-        });
-
-        // Header interactions - updated to match dashboard
-        document.querySelector('.notification-bell').addEventListener('click', function() {
-            showToast('Navigate to notifications page', 'info');
-        });
-
-        document.querySelector('.logout-arrow').addEventListener('click', function() {
-            if (confirm('Are you sure you want to logout?')) {
-                showToast('Logging out...', 'info');
-                // Add logout logic here
-                setTimeout(() => {
-                    window.location.href = '/logout/';
-                }, 1000);
-            }
-        });
-
-        // Toast notification function
-        function showToast(message, type = 'info') {
-            const toast = document.createElement('div');
-            toast.className = `toast toast-${type}`;
-            toast.textContent = message;
-            
-            Object.assign(toast.style, {
-                position: 'fixed',
-                top: '20px',
-                right: '20px',
-                backgroundColor: type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#3b82f6',
-                color: 'white',
-                padding: '12px 20px',
-                borderRadius: '8px',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                zIndex: '10000',
-                fontSize: '0.9rem',
-                fontWeight: '500',
-                transform: 'translateX(100%)',
-                transition: 'transform 0.3s ease'
-            });
-            
-            document.body.appendChild(toast);
-            
-            setTimeout(() => {
-                toast.style.transform = 'translateX(0)';
-            }, 100);
-            
-            setTimeout(() => {
-                toast.style.transform = 'translateX(100%)';
-                setTimeout(() => {
-                    if (document.body.contains(toast)) {
-                        document.body.removeChild(toast);
-                    }
-                }, 300);
-            }, 3000);
         }
+    });
 
-        // Enhanced table interactions
-        document.querySelectorAll('.harvest-table tbody tr').forEach(row => {
-            row.addEventListener('mouseenter', function() {
-                this.style.transform = 'scale(1.001)';
-                this.style.transition = 'all 0.2s ease';
-            });
-            
-            row.addEventListener('mouseleave', function() {
-                this.style.transform = 'scale(1)';
-            });
-        });
-
-        // Card hover effects
-        document.querySelectorAll('.harvest-card').forEach(card => {
-            card.addEventListener('mouseenter', function() {
-                this.style.transform = 'translateY(-2px)';
-                this.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
-                this.style.transition = 'all 0.2s ease';
-            });
-            
-            card.addEventListener('mouseleave', function() {
-                this.style.transform = 'translateY(0)';
-                this.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
-            });
-        });
-
-        // Metric card animations
-        document.querySelectorAll('.metric-card').forEach(card => {
-            card.addEventListener('mouseenter', function() {
-                this.style.transform = 'translateY(-2px)';
-                this.style.transition = 'all 0.2s ease';
-            });
-            
-            card.addEventListener('mouseleave', function() {
-                this.style.transform = 'translateY(0)';
-            });
-        });
-
-        // Auto-update simulation (in a real app, this would fetch from API)
-        function simulateRealTimeUpdates() {
-            // This is just for demo - in production you'd fetch real data
-            console.log('Checking for harvest updates...');
+    // Keyboard navigation
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            hideRecordHarvestModal();
         }
-
-        // Check for updates every 30 seconds
-        setInterval(simulateRealTimeUpdates, 30000);
-
-        // Smooth scroll functionality
-        function scrollToTop() {
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-
-        // Add scroll to top button for long lists
-        window.addEventListener('scroll', function() {
-            const scrollTop = document.documentElement.scrollTop;
-            let scrollBtn = document.getElementById('scrollTopBtn');
-            
-            if (scrollTop > 500) {
-                if (!scrollBtn) {
-                    scrollBtn = document.createElement('button');
-                    scrollBtn.id = 'scrollTopBtn';
-                    scrollBtn.innerHTML = '<i class="fas fa-chevron-up"></i>';
-                    scrollBtn.onclick = scrollToTop;
-                    
-                    Object.assign(scrollBtn.style, {
-                        position: 'fixed',
-                        bottom: '30px',
-                        right: '30px',
-                        background: '#111827',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '50%',
-                        width: '50px',
-                        height: '50px',
-                        cursor: 'pointer',
-                        fontSize: '16px',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                        zIndex: '1000',
-                        transition: 'all 0.3s ease',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                    });
-                    
-                    scrollBtn.onmouseenter = () => {
-                        scrollBtn.style.background = '#374151';
-                        scrollBtn.style.transform = 'translateY(-2px)';
-                    };
-                    scrollBtn.onmouseleave = () => {
-                        scrollBtn.style.background = '#111827';
-                        scrollBtn.style.transform = 'translateY(0)';
-                    };
-                    
-                    document.body.appendChild(scrollBtn);
-                }
-            } else {
-                if (scrollBtn) {
-                    scrollBtn.remove();
-                }
-            }
-        });
-
-        // Form field enhancements
-        const formInputs = document.querySelectorAll('.form-input, .form-select, .form-textarea');
-        formInputs.forEach(input => {
-            input.addEventListener('focus', function() {
-                this.parentElement.style.transform = 'scale(1.02)';
-                this.parentElement.style.transition = 'transform 0.2s ease';
-            });
-            
-            input.addEventListener('blur', function() {
-                this.parentElement.style.transform = 'scale(1)';
-            });
-        });
-
-        // Initialize everything
-        document.addEventListener('DOMContentLoaded', function() {
-            // Add subtle animations to cards on load
-            const cards = document.querySelectorAll('.metric-card, .harvest-card, .section');
-            cards.forEach((card, index) => {
-                card.style.opacity = '0';
-                card.style.transform = 'translateY(20px)';
-                card.style.transition = 'all 0.6s ease';
-                
-                setTimeout(() => {
-                    card.style.opacity = '1';
-                    card.style.transform = 'translateY(0)';
-                }, index * 100);
-            });
-        });
-    </script>
-</body>
-</html>
+    });
+</script>
+{% endblock %}
