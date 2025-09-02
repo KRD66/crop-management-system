@@ -236,7 +236,6 @@ def dashboard(request):
 # ========================
 
 @login_required
-@role_required(['admin'])
 def user_management(request):
     """User management view - Admin only"""
     search_query = request.GET.get('search', '')

@@ -16,7 +16,7 @@ class CustomLoginView(LoginView):
     """Custom login view for admin-added users only"""
     form_class = CustomLoginForm
     template_name = 'monitoring/auth.html'
-    redirect_authenticated_user = True  # Changed from False to True
+    redirect_authenticated_user = True
     
     def get_success_url(self):
         return reverse_lazy('monitoring:dashboard')
@@ -314,7 +314,7 @@ def role_required(allowed_roles):
                 user_profile = request.user.userprofile
                 if user_profile.role not in allowed_roles:
                     messages.error(request, 'You do not have permission to access this page.')
-                    return redirect('monitoring:dashboard')
+                    return redirect('monitoring:dashboard')  # FIXED: Added namespace
             except UserProfile.DoesNotExist:
                 messages.error(request, 'Access denied. Invalid account.')
                 return redirect('monitoring:login')

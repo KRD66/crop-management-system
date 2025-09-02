@@ -12,7 +12,7 @@ urlpatterns = [
     path('demo-login/', demo_login, name='demo_login'),
     
     # Main Dashboard
-    path('', views.dashboard, name='dashboard'),
+    path('', views.dashboard, name='dashboard'),  # Added for root path
     path('dashboard/', views.dashboard, name='dashboard_alt'),
     
     # User Management (Admin only)

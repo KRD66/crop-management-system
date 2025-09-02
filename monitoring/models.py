@@ -1,4 +1,3 @@
-
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -34,6 +33,7 @@ class UserProfile(models.Model):
     def __str__(self):
         return f"{self.user.get_full_name() or self.user.username} - {self.get_role_display()}"
     
+    # Enhanced permission properties
     @property
     def can_manage_farms(self):
         """Check if user can manage farms"""
@@ -53,6 +53,153 @@ class UserProfile(models.Model):
     def can_supervise_fields(self):
         """Check if user can supervise fields"""
         return self.role in ['admin', 'farm_manager', 'field_supervisor']
+    
+    @property
+    def can_view_analytics(self):
+        """Check if user can view analytics"""
+        return self.role in ['admin', 'farm_manager', 'field_supervisor']
+    
+    @property
+    def can_generate_reports(self):
+        """Check if user can generate reports"""
+        return self.role in ['admin', 'farm_manager', 'inventory_manager']
+    
+    @property
+    def can_manage_users(self):
+        """Check if user can manage other users"""
+        return self.role == 'admin'
+    
+    @property
+    def can_view_notifications(self):
+        """Check if user can view notifications"""
+        return True  # All users can view notifications
+    
+    def get_accessible_menu_items(self):
+        """Return menu items based on user role"""
+        menu_items = []
+        
+        # Dashboard - accessible to all roles
+        menu_items.append({
+            'name': 'Dashboard',
+            'url': 'dashboard',
+            'icon': 'dashboard'
+        })
+        
+        # Role-specific menu items
+        if self.role == 'admin':
+            menu_items.extend([
+                {'name': 'Farm Management', 'url': 'farm_management', 'icon': 'farm'},
+                {'name': 'Harvest Tracking', 'url': 'harvest_tracking', 'icon': 'harvest'},
+                {'name': 'Analytics', 'url': 'analytics', 'icon': 'analytics'},
+                {'name': 'Inventory', 'url': 'inventory', 'icon': 'inventory'},
+                {'name': 'Reports', 'url': 'reports', 'icon': 'reports'},
+                {'name': 'Notifications', 'url': 'notifications', 'icon': 'notifications'},
+                {'name': 'User Management', 'url': 'user_management', 'icon': 'users'},
+            ])
+        
+        elif self.role == 'farm_manager':
+            menu_items.extend([
+                {'name': 'Farm Management', 'url': 'farm_management', 'icon': 'farm'},
+                {'name': 'Harvest Tracking', 'url': 'harvest_tracking', 'icon': 'harvest'},
+                {'name': 'Analytics', 'url': 'analytics', 'icon': 'analytics'},
+                {'name': 'Inventory', 'url': 'inventory', 'icon': 'inventory'},
+                {'name': 'Reports', 'url': 'reports', 'icon': 'reports'},
+                {'name': 'Notifications', 'url': 'notifications', 'icon': 'notifications'},
+            ])
+        
+        elif self.role == 'field_supervisor':
+            menu_items.extend([
+                {'name': 'Harvest Tracking', 'url': 'harvest_tracking', 'icon': 'harvest'},
+                {'name': 'Analytics', 'url': 'analytics', 'icon': 'analytics'},
+                {'name': 'Notifications', 'url': 'notifications', 'icon': 'notifications'},
+            ])
+        
+        elif self.role == 'inventory_manager':
+            menu_items.extend([
+                {'name': 'Inventory', 'url': 'inventory', 'icon': 'inventory'},
+                {'name': 'Reports', 'url': 'reports', 'icon': 'reports'},
+                {'name': 'Notifications', 'url': 'notifications', 'icon': 'notifications'},
+            ])
+        
+        elif self.role == 'field_worker':
+            menu_items.extend([
+                {'name': 'Harvest Tracking', 'url': 'harvest_tracking', 'icon': 'harvest'},
+                {'name': 'Notifications', 'url': 'notifications', 'icon': 'notifications'},
+            ])
+        
+        return menu_items
+    
+    def get_queryset_for_model(self, model_name):
+        """Get filtered queryset based on user role and permissions"""
+        from django.apps import apps
+        
+        if model_name == 'Farm':
+            if self.role == 'admin':
+                return Farm.objects.all()
+            elif self.role == 'farm_manager':
+                return Farm.objects.filter(manager=self.user)
+            elif self.role in ['field_supervisor', 'field_worker']:
+                # Can see farms where they supervise fields
+                return Farm.objects.filter(field__supervisor=self.user).distinct()
+            else:
+                return Farm.objects.none()
+        
+        elif model_name == 'Field':
+            if self.role == 'admin':
+                return Field.objects.all()
+            elif self.role == 'farm_manager':
+                return Field.objects.filter(farm__manager=self.user)
+            elif self.role in ['field_supervisor', 'field_worker']:
+                return Field.objects.filter(supervisor=self.user)
+            else:
+                return Field.objects.none()
+        
+        elif model_name == 'HarvestRecord':
+            if self.role == 'admin':
+                return HarvestRecord.objects.all()
+            elif self.role == 'farm_manager':
+                return HarvestRecord.objects.filter(field__farm__manager=self.user)
+            elif self.role in ['field_supervisor', 'field_worker']:
+                return HarvestRecord.objects.filter(field__supervisor=self.user)
+            else:
+                return HarvestRecord.objects.none()
+        
+        elif model_name == 'Inventory':
+            if self.role in ['admin', 'inventory_manager']:
+                return Inventory.objects.all()
+            elif self.role == 'farm_manager':
+                # Farm managers can see inventory from their farms
+                return Inventory.objects.filter(harvest_record__field__farm__manager=self.user)
+            else:
+                return Inventory.objects.none()
+        
+        # Default: return empty queryset for unknown models
+        return apps.get_model('your_app', model_name).objects.none()
+    
+    def can_access_object(self, obj):
+        """Check if user can access a specific object"""
+        if self.role == 'admin':
+            return True
+        
+        if isinstance(obj, Farm):
+            return (self.role == 'farm_manager' and obj.manager == self.user) or \
+                   (self.role in ['field_supervisor', 'field_worker'] and 
+                    obj.field_set.filter(supervisor=self.user).exists())
+        
+        elif isinstance(obj, Field):
+            return (self.role == 'farm_manager' and obj.farm.manager == self.user) or \
+                   (self.role in ['field_supervisor', 'field_worker'] and obj.supervisor == self.user)
+        
+        elif isinstance(obj, HarvestRecord):
+            return (self.role == 'farm_manager' and obj.field.farm.manager == self.user) or \
+                   (self.role in ['field_supervisor', 'field_worker'] and obj.field.supervisor == self.user)
+        
+        elif isinstance(obj, Inventory):
+            return self.role in ['admin', 'inventory_manager'] or \
+                   (self.role == 'farm_manager' and obj.harvest_record and 
+                    obj.harvest_record.field.farm.manager == self.user)
+        
+        return False
 
 
 class Farm(models.Model):
