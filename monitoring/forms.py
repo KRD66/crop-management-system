@@ -295,3 +295,19 @@ class BulkInventoryUpdateForm(forms.Form):
         if action == 'update_condition' and not cleaned.get('new_storage_condition'):
             raise forms.ValidationError("New storage condition is required.")
         return cleaned
+
+
+
+
+
+
+
+
+class UserAddForm(forms.ModelForm):
+    password = forms.CharField(widget=forms.PasswordInput)
+
+    class Meta:
+        model = User
+        fields = ['username', 'email', 'first_name', 'last_name', 'password']
+
+    role = forms.ChoiceField(choices=UserProfile.ROLE_CHOICES)
