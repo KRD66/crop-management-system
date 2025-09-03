@@ -7,8 +7,6 @@ from datetime import date
 from django.db.models import Sum
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-
-
 class UserProfile(models.Model):
     ROLE_CHOICES = [
         ('admin', 'Admin'),
@@ -19,7 +17,7 @@ class UserProfile(models.Model):
     ]
     
     user = models.OneToOneField(User, on_delete=models.CASCADE)
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='field_worker')
     supabase_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -32,6 +30,7 @@ class UserProfile(models.Model):
     
     def __str__(self):
         return f"{self.user.get_full_name() or self.user.username} - {self.get_role_display()}"
+
     
     # Enhanced permission properties
     @property
@@ -665,13 +664,14 @@ class Inventory(models.Model):
         
         if self.quantity_tons and self.quantity_tons < 0:
             raise ValidationError("Quantity cannot be negative.")
-
-
+        
+        
+        
 @receiver(post_save, sender=User)
 def create_user_profile(sender, instance, created, **kwargs):
-    """Automatically create UserProfile when User is created"""
+    """Automatically create UserProfile with default role when User is created"""
     if created:
-        UserProfile.objects.create(user=instance)
+        UserProfile.objects.create(user=instance, role='field_worker')
 
 @receiver(post_save, sender=User)
 def save_user_profile(sender, instance, **kwargs):
@@ -679,4 +679,4 @@ def save_user_profile(sender, instance, **kwargs):
     if hasattr(instance, 'userprofile'):
         instance.userprofile.save()
     else:
-        UserProfile.objects.create(user=instance)
+        UserProfile.objects.create(user=instance, role='field_worker')        
