@@ -1,7 +1,6 @@
-# monitoring/views.py - Integrated views with user management and farm monitoring
+# monitoring/views.py - Updated with proper role-based access control
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib import messages
 from django.contrib.auth.models import User
 from django.http import JsonResponse, HttpResponse, Http404
@@ -12,6 +11,7 @@ from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction, models
 from django.utils import timezone
+from django.views.generic import ListView, DetailView, CreateView, UpdateView
 from datetime import datetime, timedelta, date
 from decimal import Decimal
 from collections import defaultdict
@@ -19,6 +19,8 @@ import json
 import csv
 import random
 from io import BytesIO
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views.generic import DetailView
 
 # ReportLab imports for PDF generation
 from reportlab.pdfgen import canvas
@@ -42,8 +44,11 @@ from .forms import (
     AddInventoryForm, RemoveInventoryForm, InventoryFilterForm, BulkInventoryUpdateForm
 )
 
-# Import custom decorators
-from .auth_views import admin_added_required, role_required
+# Import custom decorators and mixins
+from .decorators import (
+    role_required, permission_required, object_access_required,
+    RoleRequiredMixin, PermissionRequiredMixin, ObjectAccessMixin
+)
 
 
 # ========================
@@ -51,56 +56,68 @@ from .auth_views import admin_added_required, role_required
 # ========================
 
 @login_required
-@admin_added_required
 def dashboard(request):
     """
-    Main dashboard view that calculates all metrics shown in the design
+    Role-based dashboard view - shows different data based on user role
     """
     try:
-        # Calculate Total Harvested
-        total_harvested = HarvestRecord.objects.aggregate(
+        user_profile = request.user.userprofile
+        
+        # Initialize context with role-specific data
+        context = {
+            'total_harvested': 0,
+            'active_farms': 0,
+            'total_inventory': 0,
+            'avg_yield_efficiency': 85,
+            'harvest_trends': json.dumps([]),
+            'crop_distribution': [],
+            'yield_performance': json.dumps([]),
+            'recent_harvests': [],
+            'upcoming_harvests': [],
+            'user_role': user_profile.get_role_display(),
+            'user_profile': user_profile
+        }
+        
+        # Get role-specific querysets
+        farms_qs = user_profile.get_queryset_for_model('Farm')
+        fields_qs = user_profile.get_queryset_for_model('Field')
+        harvests_qs = user_profile.get_queryset_for_model('HarvestRecord')
+        inventory_qs = user_profile.get_queryset_for_model('Inventory')
+        
+        # Calculate metrics based on accessible data
+        total_harvested = harvests_qs.aggregate(
             total=Sum('quantity_tons')
         )['total'] or 0
         
-        # Calculate Active Farms
-        active_farms = Farm.objects.filter(is_active=True).count()
+        active_farms = farms_qs.filter(is_active=True).count()
         
-        # Calculate Total Inventory
-        total_inventory = Inventory.objects.aggregate(
+        total_inventory = inventory_qs.aggregate(
             total=Sum('quantity_tons')
         )['total'] or 0
         
-        # Calculate Average Yield Efficiency
-        fields_with_harvests = Field.objects.filter(
-            harvestrecord__isnull=False
-        ).distinct()
-        
-        if fields_with_harvests.exists():
-            total_actual = HarvestRecord.objects.aggregate(
-                total=Sum('quantity_tons')
-            )['total'] or 0
-            
+        # Calculate efficiency for accessible farms
+        if farms_qs.exists():
+            total_actual = float(harvests_qs.aggregate(total=Sum('quantity_tons'))['total'] or 0)
             total_expected = 0
-            for field in fields_with_harvests:
-                if field.crop.expected_yield_per_hectare:
-                    expected = field.area_hectares * field.crop.expected_yield_per_hectare
-                else:
-                    expected = field.area_hectares * Decimal('5')  # Default 5 tons/hectare
-                total_expected += expected
+            
+            for farm in farms_qs.filter(is_active=True):
+                for field in field.field_set.all():
+                    if field.crop.expected_yield_per_hectare:
+                        total_expected += float(field.area_hectares * field.crop.expected_yield_per_hectare)
+                    else:
+                        total_expected += float(field.area_hectares * 5)
             
             if total_expected > 0:
                 avg_yield_efficiency = min(int((total_actual / total_expected) * 100), 100)
             else:
                 avg_yield_efficiency = 85
-        else:
-            avg_yield_efficiency = 85
         
-        # Get Harvest Trends data (monthly data for line chart)
+        # Get harvest trends for accessible data
         harvest_trends = []
         current_year = datetime.now().year
         
         for month in range(1, 13):
-            month_total = HarvestRecord.objects.filter(
+            month_total = harvests_qs.filter(
                 harvest_date__year=current_year,
                 harvest_date__month=month
             ).aggregate(total=Sum('quantity_tons'))['total'] or 0
@@ -110,14 +127,14 @@ def dashboard(request):
                 'value': float(month_total)
             })
         
-        # Get Crop Distribution data (for donut chart)
+        # Get crop distribution for accessible harvests
         crop_distribution = []
-        total_crop_harvests = HarvestRecord.objects.aggregate(
+        total_crop_harvests = harvests_qs.aggregate(
             total=Sum('quantity_tons')
         )['total'] or 1
         
         if total_crop_harvests > 0:
-            crop_stats = HarvestRecord.objects.values('field__crop__name').annotate(
+            crop_stats = harvests_qs.values('field__crop__name').annotate(
                 total_quantity=Sum('quantity_tons')
             ).order_by('-total_quantity')
             
@@ -130,85 +147,55 @@ def dashboard(request):
                         'quantity': float(crop['total_quantity'])
                     })
         
-        # If no crop data, provide sample data
-        if not crop_distribution:
-            crop_distribution = [
-                {'crop': 'corn', 'percentage': 45.0, 'quantity': 0},
-                {'crop': 'wheat', 'percentage': 30.0, 'quantity': 0},
-                {'crop': 'soybeans', 'percentage': 25.0, 'quantity': 0}
-            ]
-        
-        # Get Yield Performance data (for the bar chart)
+        # Get yield performance for accessible farms
         yield_performance = []
-        farms = Farm.objects.filter(is_active=True)[:4]
+        accessible_farms = farms_qs.filter(is_active=True)[:4]
         
-        if farms.exists():
-            for farm in farms:
-                farm_fields = Field.objects.filter(farm=farm)
-                expected_yield = 0
-                
-                for field in farm_fields:
-                    if field.crop.expected_yield_per_hectare:
-                        expected_yield += float(field.area_hectares * field.crop.expected_yield_per_hectare)
-                    else:
-                        expected_yield += float(field.area_hectares * 5)
-                
-                actual_yield = HarvestRecord.objects.filter(
-                    field__farm=farm
-                ).aggregate(total=Sum('quantity_tons'))['total'] or 0
-                
-                yield_performance.append({
-                    'farm': farm.name[:10] + ('...' if len(farm.name) > 10 else ''),
-                    'expected': expected_yield,
-                    'actual': float(actual_yield)
-                })
-        else:
-            # Sample data if no farms exist
-            yield_performance = [
-                {'farm': 'Farm A', 'expected': 2400, 'actual': 2500},
-                {'farm': 'Farm B', 'expected': 1800, 'actual': 1600},
-                {'farm': 'Farm C', 'expected': 2000, 'actual': 2100},
-                {'farm': 'Farm D', 'expected': 1700, 'actual': 1750}
-            ]
+        for farm in accessible_farms:
+            farm_fields = fields_qs.filter(farm=farm)
+            expected_yield = 0
+            
+            for field in farm_fields:
+                if field.crop.expected_yield_per_hectare:
+                    expected_yield += float(field.area_hectares * field.crop.expected_yield_per_hectare)
+                else:
+                    expected_yield += float(field.area_hectares * 5)
+            
+            actual_yield = harvests_qs.filter(
+                field__farm=farm
+            ).aggregate(total=Sum('quantity_tons'))['total'] or 0
+            
+            yield_performance.append({
+                'farm': farm.name[:10] + ('...' if len(farm.name) > 10 else ''),
+                'expected': expected_yield,
+                'actual': float(actual_yield)
+            })
         
-        # Get Recent Harvests
-        recent_harvests = HarvestRecord.objects.select_related(
+        # Get recent harvests (accessible)
+        recent_harvests = harvests_qs.select_related(
             'field__farm', 'field__crop', 'harvested_by'
         ).order_by('-harvest_date')[:5]
         
-        # Get Upcoming Harvests
+        # Get upcoming harvests (accessible)
         upcoming_date = datetime.now().date() + timedelta(days=30)
-        upcoming_harvests = Field.objects.filter(
+        upcoming_harvests = fields_qs.filter(
             expected_harvest_date__lte=upcoming_date,
             expected_harvest_date__gte=datetime.now().date(),
             is_active=True
         ).select_related('farm', 'crop').order_by('expected_harvest_date')[:5]
         
-        # Get user role safely
-        user_role = 'Demo User - Admin'
-        if hasattr(request.user, 'userprofile'):
-            user_role = request.user.userprofile.get_role_display()
-        
-        context = {
-            # Main dashboard metrics
+        # Update context with calculated values
+        context.update({
             'total_harvested': float(total_harvested),
             'active_farms': active_farms,
             'total_inventory': float(total_inventory),
             'avg_yield_efficiency': avg_yield_efficiency,
-            
-            # Chart data (JSON serialized for JavaScript)
             'harvest_trends': json.dumps(harvest_trends),
             'crop_distribution': crop_distribution,
             'yield_performance': json.dumps(yield_performance),
-            
-            # Recent data
             'recent_harvests': recent_harvests,
             'upcoming_harvests': upcoming_harvests,
-            
-            # User info
-            'user_role': user_role,
-            'user_profile': getattr(request.user, 'userprofile', None)
-        }
+        })
         
         return render(request, 'monitoring/dashboard.html', context)
         
@@ -236,6 +223,7 @@ def dashboard(request):
 # ========================
 
 @login_required
+@role_required(['admin'])
 def user_management(request):
     """User management view - Admin only"""
     search_query = request.GET.get('search', '')
@@ -279,7 +267,7 @@ def user_management(request):
         'search_query': search_query,
         'role_filter': role_filter,
         'status_filter': status_filter,
-        'role_choices': UserProfile.ROLE_CHOICES if hasattr(UserProfile, 'ROLE_CHOICES') else [],
+        'role_choices': UserProfile.ROLE_CHOICES,
         'stats': stats,
         'can_manage_users': True
     }
@@ -381,161 +369,16 @@ def user_deactivate(request, user_id):
     return redirect('monitoring:user_management')
 
 
-@login_required
-@role_required(['admin'])
-@require_http_methods(["POST"])
-def user_activate(request, user_id):
-    """Activate user - Admin only"""
-    user = get_object_or_404(User, id=user_id)
-    
-    try:
-        user.userprofile.is_active = True
-        user.userprofile.save()
-        user.is_active = True
-        user.save()
-        
-        messages.success(request, f'User {user.username} has been activated.')
-    except Exception as e:
-        messages.error(request, f'Error activating user: {str(e)}')
-    
-    return redirect('monitoring:user_management')
-
-
-@login_required
-@role_required(['admin'])
-@require_http_methods(["POST"])
-def user_delete(request, user_id):
-    """Delete user - Admin only"""
-    user = get_object_or_404(User, id=user_id)
-    
-    if user.is_superuser and not request.user.is_superuser:
-        messages.error(request, 'You cannot delete superuser accounts.')
-        return redirect('monitoring:user_management')
-    
-    if user == request.user:
-        messages.error(request, 'You cannot delete your own account.')
-        return redirect('monitoring:user_management')
-    
-    try:
-        username = user.username
-        user.delete()
-        messages.success(request, f'User {username} has been deleted.')
-    except Exception as e:
-        messages.error(request, f'Error deleting user: {str(e)}')
-    
-    return redirect('monitoring:user_management')
-
-
-@login_required
-@role_required(['admin'])
-def user_reset_password(request, user_id):
-    """Reset user password - Admin only"""
-    user = get_object_or_404(User, id=user_id)
-    
-    if request.method == 'POST':
-        new_password = request.POST.get('new_password')
-        confirm_password = request.POST.get('confirm_password')
-        
-        if not new_password or len(new_password) < 8:
-            messages.error(request, 'Password must be at least 8 characters long.')
-        elif new_password != confirm_password:
-            messages.error(request, 'Passwords do not match.')
-        else:
-            try:
-                user.set_password(new_password)
-                user.save()
-                messages.success(
-                    request, 
-                    f'Password for user {user.username} has been reset successfully.'
-                )
-                return redirect('monitoring:user_management')
-            except Exception as e:
-                messages.error(request, f'Error resetting password: {str(e)}')
-    
-    context = {
-        'user': user,
-        'title': f'Reset Password for: {user.username}',
-    }
-    return render(request, 'monitoring/user_reset_password.html', context)
-
-
-@login_required
-@admin_added_required
-def profile_view(request):
-    """View user profile"""
-    context = {
-        'user': request.user,
-        'profile': request.user.userprofile,
-    }
-    return render(request, 'monitoring/profile.html', context)
-
-
-@login_required
-@admin_added_required
-def profile_edit(request):
-    """Edit user profile (limited fields)"""
-    if request.method == 'POST':
-        first_name = request.POST.get('first_name', '').strip()
-        last_name = request.POST.get('last_name', '').strip()
-        phone_number = request.POST.get('phone_number', '').strip()
-        
-        try:
-            request.user.first_name = first_name
-            request.user.last_name = last_name
-            request.user.save()
-            
-            request.user.userprofile.phone_number = phone_number
-            request.user.userprofile.save()
-            
-            messages.success(request, 'Profile updated successfully.')
-            return redirect('monitoring:profile')
-        except Exception as e:
-            messages.error(request, f'Error updating profile: {str(e)}')
-    
-    context = {
-        'user': request.user,
-        'profile': request.user.userprofile,
-    }
-    return render(request, 'monitoring/profile_edit.html', context)
-
-
-def password_reset_request(request):
-    """Password reset request form"""
-    if request.method == 'POST':
-        form = PasswordResetRequestForm(request.POST)
-        if form.is_valid():
-            email = form.cleaned_data['email']
-            reason = form.cleaned_data.get('reason', '')
-            
-            messages.success(
-                request,
-                'Password reset request submitted successfully. '
-                'An administrator will contact you soon to reset your password.'
-            )
-            return redirect('monitoring:login')
-        else:
-            for field, errors in form.errors.items():
-                for error in errors:
-                    messages.error(request, f'{field.title()}: {error}')
-    else:
-        form = PasswordResetRequestForm()
-    
-    context = {
-        'form': form,
-        'title': 'Request Password Reset',
-    }
-    return render(request, 'monitoring/password_reset_request.html', context)
-
-
 # ========================
 # FARM MANAGEMENT VIEWS
 # ========================
 
 @login_required
-@admin_added_required
+@permission_required('can_manage_farms')
 def farm_management(request):
-    """Farm management view"""
-    farms = Farm.objects.filter(is_active=True).prefetch_related('field_set__crop')
+    """Farm management view - Farm managers and admins only"""
+    user_profile = request.user.userprofile
+    farms = user_profile.get_queryset_for_model('Farm')
 
     total_farms = farms.count()
     active_farms = farms.filter(is_active=True).count()
@@ -552,12 +395,9 @@ def farm_management(request):
 
         farm_area_hectares = farm_fields.aggregate(
             total=Sum('area_hectares')
-        )['total'] or Decimal('0')
+        )['total'] or farm.total_area_hectares
         
-        if farm_area_hectares == 0:
-            farm_area_hectares = farm.total_area_hectares
-        
-        total_area_acres = farm_area_hectares * Decimal('2.47105')  # Convert to acres
+        total_area_acres = farm_area_hectares * Decimal('2.47105')
         total_area += total_area_acres
 
         total_harvested = HarvestRecord.objects.filter(
@@ -565,10 +405,7 @@ def farm_management(request):
         ).aggregate(total=Sum('quantity_tons'))['total'] or Decimal('0')
         total_harvested_all += total_harvested
 
-        if total_area_acres > 0:
-            avg_yield = total_harvested / total_area_acres
-        else:
-            avg_yield = Decimal('0')
+        avg_yield = total_harvested / total_area_acres if total_area_acres > 0 else Decimal('0')
 
         farm.calculated_field_count = field_count
         farm.calculated_total_area = total_area_acres
@@ -579,51 +416,6 @@ def farm_management(request):
 
     avg_farm_size = total_area / total_farms if total_farms > 0 else Decimal('0')
 
-    try:
-        recent_farms = Farm.objects.order_by('-created_at')[:5]
-    except:
-        recent_farms = farms[:5]
-
-    top_farms = sorted(farms_with_stats, key=lambda x: x.calculated_avg_yield, reverse=True)[:5]
-
-    location_distribution = []
-    location_counts = defaultdict(int)
-    for farm in farms:
-        location = farm.location if farm.location else 'Unknown'
-        location_counts[location] += 1
-    
-    for location, count in location_counts.items():
-        location_distribution.append({
-            'location': location,
-            'count': count
-        })
-
-    size_distribution = []
-    size_ranges = {
-        '0-50 acres': 0,
-        '51-100 acres': 0,
-        '101-200 acres': 0,
-        '200+ acres': 0
-    }
-    
-    for farm in farms_with_stats:
-        size = float(farm.calculated_total_area)
-        if size <= 50:
-            size_ranges['0-50 acres'] += 1
-        elif size <= 100:
-            size_ranges['51-100 acres'] += 1
-        elif size <= 200:
-            size_ranges['101-200 acres'] += 1
-        else:
-            size_ranges['200+ acres'] += 1
-    
-    for range_name, count in size_ranges.items():
-        if count > 0:
-            size_distribution.append({
-                'range': range_name,
-                'count': count
-            })
-
     context = {
         'total_farms': total_farms,
         'active_farms': active_farms,
@@ -631,13 +423,62 @@ def farm_management(request):
         'avg_farm_size': round(float(avg_farm_size), 1),
         'total_fields': total_fields,
         'farms': farms_with_stats,
-        'recent_farms': recent_farms,
-        'top_farms': top_farms,
-        'location_distribution': location_distribution,
-        'size_distribution': size_distribution,
+        'can_create_farm': user_profile.role == 'admin',
+        'can_edit_farms': user_profile.can_manage_farms,
     }
 
     return render(request, 'monitoring/farm_management.html', context)
+
+
+class FarmListView(RoleRequiredMixin, ObjectAccessMixin, ListView):
+    """List farms with role-based filtering"""
+    model = Farm
+    template_name = 'monitoring/farm_list.html'
+    allowed_roles = ['admin', 'farm_manager', 'field_supervisor']
+    context_object_name = 'farms'
+    paginate_by = 10
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['total_farms'] = self.get_queryset().count()
+        context['can_create_farm'] = self.request.user.userprofile.role == 'admin'
+        return context
+
+
+class FarmDetailView(LoginRequiredMixin, DetailView):
+    """Farm detail view with object-level access control"""
+    model = Farm
+    template_name = 'monitoring/farm_detail.html'
+    context_object_name = 'farm'
+    
+    def get_object(self):
+        obj = super().get_object()
+        user_profile = self.request.user.userprofile
+        if not user_profile.can_access_object(obj):
+            raise Http404("Farm not found or access denied")
+        return obj
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        farm = self.object
+        user_profile = self.request.user.userprofile
+        
+        # Get accessible fields for this farm
+        fields = user_profile.get_queryset_for_model('Field').filter(farm=farm)
+        
+        # Get recent harvests
+        recent_harvests = user_profile.get_queryset_for_model('HarvestRecord').filter(
+            field__farm=farm
+        ).select_related('field', 'harvested_by').order_by('-harvest_date')[:10]
+        
+        context.update({
+            'fields': fields,
+            'recent_harvests': recent_harvests,
+            'can_edit': user_profile.can_access_object(farm) and user_profile.can_manage_farms,
+            'field_count': fields.count(),
+            'total_harvested': recent_harvests.aggregate(total=Sum('quantity_tons'))['total'] or 0
+        })
+        return context
 
 
 # ========================
@@ -645,70 +486,28 @@ def farm_management(request):
 # ========================
 
 @login_required
-@admin_added_required
+@permission_required('can_track_harvests')
 def harvest_tracking(request):
-    """Harvest Tracking view - shows recent harvests with filtering options"""
-    harvests = HarvestRecord.objects.select_related(
+    """Harvest Tracking view - shows harvests user can access"""
+    user_profile = request.user.userprofile
+    harvests = user_profile.get_queryset_for_model('HarvestRecord').select_related(
         'field__farm', 'field__crop', 'harvested_by'
     ).order_by('-harvest_date')[:50]
     
-    total_harvests = HarvestRecord.objects.count()
-    total_quantity = HarvestRecord.objects.aggregate(
+    total_harvests = user_profile.get_queryset_for_model('HarvestRecord').count()
+    total_quantity = user_profile.get_queryset_for_model('HarvestRecord').aggregate(
         total=Sum('quantity_tons')
     )['total'] or 0
     
     week_ago = datetime.now().date() - timedelta(days=7)
-    recent_activity = HarvestRecord.objects.filter(
+    recent_activity = user_profile.get_queryset_for_model('HarvestRecord').filter(
         harvest_date__gte=week_ago
     ).count()
     
-    available_fields = Field.objects.select_related('farm', 'crop').filter(
+    available_fields = user_profile.get_queryset_for_model('Field').select_related('farm', 'crop').filter(
         farm__is_active=True,
         is_active=True
     ).order_by('farm__name', 'name')
-    
-    completed_harvests = HarvestRecord.objects.filter(
-        status='completed'
-    ).count() if hasattr(HarvestRecord, 'status') else total_harvests
-    
-    in_progress_harvests = HarvestRecord.objects.filter(
-        status='in_progress'
-    ).count() if hasattr(HarvestRecord, 'status') else 0
-    
-    quality_grades = HarvestRecord.objects.values_list('quality_grade', flat=True)
-    avg_quality = 'A'
-    if quality_grades:
-        from collections import Counter
-        grade_counts = Counter(quality_grades)
-        avg_quality = grade_counts.most_common(1)[0][0] if grade_counts else 'A'
-    
-    month_ago = datetime.now().date() - timedelta(days=30)
-    harvests_this_month = HarvestRecord.objects.filter(
-        harvest_date__gte=month_ago
-    ).count()
-    
-    best_farm = Farm.objects.annotate(
-        total_harvest=Sum('field__harvestrecord__quantity_tons')
-    ).filter(total_harvest__isnull=False).order_by('-total_harvest').first()
-    
-    best_performing_farm = best_farm.name if best_farm else 'N/A'
-    
-    avg_days_to_harvest = 0
-    fields_with_both_dates = Field.objects.filter(
-        harvestrecord__isnull=False
-    ).distinct()
-    
-    if fields_with_both_dates.exists():
-        total_days = 0
-        count = 0
-        for field in fields_with_both_dates:
-            latest_harvest = field.harvestrecord_set.first()
-            if latest_harvest and hasattr(field, 'planting_date') and field.planting_date:
-                days = (latest_harvest.harvest_date - field.planting_date).days
-                if days > 0:
-                    total_days += days
-                    count += 1
-        avg_days_to_harvest = total_days // count if count > 0 else 0
     
     context = {
         'harvests': harvests,
@@ -716,17 +515,173 @@ def harvest_tracking(request):
         'total_quantity': float(total_quantity),
         'recent_activity': recent_activity,
         'available_fields': available_fields,
-        'completed_harvests': completed_harvests,
-        'in_progress_harvests': in_progress_harvests,
-        'avg_quality': avg_quality,
-        'harvests_this_week': recent_activity,
-        'harvests_this_month': harvests_this_month,
-        'best_performing_farm': best_performing_farm,
-        'avg_days_to_harvest': avg_days_to_harvest,
-        'total_harvest_records': total_harvests,
+        'can_create_harvest': user_profile.can_track_harvests,
+        'can_edit_harvests': user_profile.role in ['admin', 'farm_manager'],
     }
     
     return render(request, 'monitoring/harvest_tracking.html', context)
+
+
+class HarvestListView(PermissionRequiredMixin, ObjectAccessMixin, ListView):
+    """List harvest records with role-based filtering"""
+    model = HarvestRecord
+    template_name = 'monitoring/harvest_list.html'
+    permission_method = 'can_track_harvests'
+    context_object_name = 'harvests'
+    paginate_by = 25
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Apply filters if provided
+        farm_filter = self.request.GET.get('farm')
+        crop_filter = self.request.GET.get('crop')
+        date_from = self.request.GET.get('date_from')
+        date_to = self.request.GET.get('date_to')
+        
+        if farm_filter:
+            queryset = queryset.filter(field__farm__id=farm_filter)
+        
+        if crop_filter:
+            queryset = queryset.filter(field__crop__id=crop_filter)
+        
+        if date_from:
+            try:
+                from_date = datetime.strptime(date_from, '%Y-%m-%d').date()
+                queryset = queryset.filter(harvest_date__gte=from_date)
+            except ValueError:
+                pass
+        
+        if date_to:
+            try:
+                to_date = datetime.strptime(date_to, '%Y-%m-%d').date()
+                queryset = queryset.filter(harvest_date__lte=to_date)
+            except ValueError:
+                pass
+        
+        return queryset.select_related('field__farm', 'field__crop', 'harvested_by')
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user_profile = self.request.user.userprofile
+        
+        # Get accessible farms and crops for filters
+        accessible_farms = user_profile.get_queryset_for_model('Farm').filter(is_active=True)
+        accessible_fields = user_profile.get_queryset_for_model('Field')
+        accessible_crops = Crop.objects.filter(
+            field__in=accessible_fields
+        ).distinct().order_by('name')
+        
+        context.update({
+            'farms': accessible_farms,
+            'crops': accessible_crops,
+            'farm_filter': self.request.GET.get('farm'),
+            'crop_filter': self.request.GET.get('crop'),
+            'date_from': self.request.GET.get('date_from'),
+            'date_to': self.request.GET.get('date_to'),
+            'total_harvests': self.get_queryset().count(),
+            'can_create_harvest': user_profile.can_track_harvests,
+        })
+        return context
+
+
+class HarvestDetailView(LoginRequiredMixin, DetailView):
+    """Harvest detail view with object-level access control"""
+    model = HarvestRecord
+    template_name = 'monitoring/harvest_detail.html'
+    context_object_name = 'harvest'
+    
+    def get_object(self):
+        obj = super().get_object()
+        user_profile = self.request.user.userprofile
+        if not user_profile.can_access_object(obj):
+            raise Http404("Harvest record not found or access denied")
+        return obj
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user_profile = self.request.user.userprofile
+        context['can_edit'] = user_profile.role in ['admin', 'farm_manager']
+        context['can_delete'] = user_profile.role == 'admin'
+        return context
+
+
+@login_required
+@permission_required('can_track_harvests')
+def harvest_add(request):
+    """Add new harvest record"""
+    user_profile = request.user.userprofile
+    
+    if request.method == 'POST':
+        field_id = request.POST.get('field')
+        quantity_tons = request.POST.get('quantity_tons')
+        harvest_date = request.POST.get('harvest_date')
+        quality_grade = request.POST.get('quality_grade', 'A')
+        
+        try:
+            # Check if user can access this field
+            accessible_fields = user_profile.get_queryset_for_model('Field')
+            field = accessible_fields.get(id=field_id)
+            
+            harvest = HarvestRecord.objects.create(
+                field=field,
+                quantity_tons=Decimal(quantity_tons),
+                harvest_date=datetime.strptime(harvest_date, '%Y-%m-%d').date(),
+                quality_grade=quality_grade,
+                harvested_by=request.user
+            )
+            
+            messages.success(request, f'Harvest record created successfully: {quantity_tons} tons from {field.name}')
+            return redirect('monitoring:harvest_detail', pk=harvest.id)
+            
+        except Field.DoesNotExist:
+            messages.error(request, 'You do not have access to this field.')
+        except Exception as e:
+            messages.error(request, f'Error creating harvest record: {str(e)}')
+    
+    # Get accessible fields for the form
+    fields = user_profile.get_queryset_for_model('Field').filter(
+        is_active=True
+    ).select_related('farm', 'crop').order_by('farm__name', 'name')
+    
+    context = {
+        'fields': fields,
+        'today': datetime.now().date(),
+        'quality_choices': HarvestRecord.QUALITY_GRADES,
+    }
+    return render(request, 'monitoring/harvest_add.html', context)
+
+
+@login_required
+@role_required(['admin', 'farm_manager'])
+@object_access_required(HarvestRecord)
+def harvest_edit(request, pk):
+    """Edit harvest record - Admin and Farm Manager only"""
+    harvest = get_object_or_404(HarvestRecord, pk=pk)
+    
+    if request.method == 'POST':
+        try:
+            harvest.quantity_tons = Decimal(request.POST.get('quantity_tons'))
+            harvest.harvest_date = datetime.strptime(request.POST.get('harvest_date'), '%Y-%m-%d').date()
+            harvest.quality_grade = request.POST.get('quality_grade')
+            
+            # Add notes about the edit
+            if hasattr(harvest, 'notes'):
+                harvest.notes += f"\n[{datetime.now().date()}] Edited by {request.user.get_full_name() or request.user.username}"
+            
+            harvest.save()
+            
+            messages.success(request, 'Harvest record updated successfully.')
+            return redirect('monitoring:harvest_detail', pk=harvest.pk)
+            
+        except Exception as e:
+            messages.error(request, f'Error updating harvest record: {str(e)}')
+    
+    context = {
+        'harvest': harvest,
+        'quality_choices': HarvestRecord.QUALITY_GRADES,
+    }
+    return render(request, 'monitoring/harvest_edit.html', context)
 
 
 # ========================
@@ -734,27 +689,36 @@ def harvest_tracking(request):
 # ========================
 
 @login_required
-@admin_added_required
+@permission_required('can_view_analytics')
 def analytics(request):
-    """Analytics view - detailed charts and analysis"""
+    """Analytics view - shows data user can access"""
     try:
+        user_profile = request.user.userprofile
         current_year = datetime.now().year
         current_date = datetime.now().date()
         
-        # Get all active farms with their efficiency data
+        # Get accessible data based on role
+        farms_qs = user_profile.get_queryset_for_model('Farm')
+        fields_qs = user_profile.get_queryset_for_model('Field')
+        harvests_qs = user_profile.get_queryset_for_model('HarvestRecord')
+        
+        # Calculate efficiency for accessible farms
         farms_data = []
         total_efficiency = 0
         underperforming_count = 0
         
-        for farm in Farm.objects.filter(is_active=True).prefetch_related('field_set__crop'):
+        for farm in farms_qs.filter(is_active=True).prefetch_related('field_set__crop'):
+            # Only include fields user can access
+            accessible_farm_fields = fields_qs.filter(farm=farm)
+            
             expected_total = 0
-            for field in farm.field_set.all():
+            for field in accessible_farm_fields:
                 if field.crop.expected_yield_per_hectare:
                     expected_total += float(field.area_hectares * field.crop.expected_yield_per_hectare)
                 else:
                     expected_total += float(field.area_hectares * 5)
             
-            actual_total = float(HarvestRecord.objects.filter(
+            actual_total = float(harvests_qs.filter(
                 field__farm=farm
             ).aggregate(total=Sum('quantity_tons'))['total'] or 0)
             
@@ -764,9 +728,9 @@ def analytics(request):
                 efficiency = 0
             
             primary_crop = 'Mixed'
-            if farm.field_set.exists():
+            if accessible_farm_fields.exists():
                 crop_counts = defaultdict(int)
-                for field in farm.field_set.all():
+                for field in accessible_farm_fields:
                     crop_counts[field.crop.name] += 1
                 primary_crop = max(crop_counts, key=crop_counts.get) if crop_counts else 'Mixed'
             
@@ -791,9 +755,9 @@ def analytics(request):
             'name': 'No Data', 'efficiency': 0
         }
         
-        # Calculate predicted harvest
+        # Calculate predicted harvest for accessible fields
         two_weeks_later = current_date + timedelta(days=14)
-        upcoming_fields = Field.objects.filter(
+        upcoming_fields = fields_qs.filter(
             expected_harvest_date__gte=current_date,
             expected_harvest_date__lte=two_weeks_later,
             is_active=True
@@ -806,7 +770,7 @@ def analytics(request):
             else:
                 predicted_harvest += float(field.area_hectares * 5)
         
-        # Yield Performance Chart Data
+        # Yield Performance Chart Data (accessible farms only)
         yield_performance_data = []
         for farm_data in farms_data[:8]:
             yield_performance_data.append({
@@ -815,40 +779,22 @@ def analytics(request):
                 'actual': round(farm_data['actual_yield'], 1)
             })
         
-        # Add sample data if insufficient
-        while len(yield_performance_data) < 4:
-            samples = [
-                {'farm': 'North Field', 'expected': 2400, 'actual': 2500},
-                {'farm': 'South Field', 'expected': 1800, 'actual': 1600},
-                {'farm': 'East Plot', 'expected': 2000, 'actual': 2100},
-                {'farm': 'West Area', 'expected': 1700, 'actual': 1750}
-            ]
-            yield_performance_data.extend(samples[:4 - len(yield_performance_data)])
-        
-        # Seasonal Trends Data
+        # Seasonal Trends Data (accessible harvests only)
         seasonal_trends_data = {'corn': [], 'wheat': [], 'soybeans': []}
         
         for year in range(2020, 2025):
             for crop_name, crop_key in [('corn', 'corn'), ('wheat', 'wheat'), ('soy', 'soybeans')]:
-                total = HarvestRecord.objects.filter(
+                total = harvests_qs.filter(
                     harvest_date__year=year,
                     field__crop__name__icontains=crop_name
                 ).aggregate(total=Sum('quantity_tons'))['total'] or 0
                 seasonal_trends_data[crop_key].append(float(total))
         
-        # Use sample data if no real data
-        if all(sum(seasonal_trends_data[crop]) == 0 for crop in seasonal_trends_data):
-            seasonal_trends_data = {
-                'corn': [1200, 1350, 1500, 1800, 2100],
-                'wheat': [800, 950, 1100, 1200, 1400],
-                'soybeans': [600, 750, 850, 950, 1100]
-            }
-        
-        # Weather Correlation Data
+        # Weather Correlation Data (based on accessible data)
         weather_correlation_data = {'performance': [], 'rainfall': []}
         
         for month in range(1, 9):
-            month_harvests = HarvestRecord.objects.filter(
+            month_harvests = harvests_qs.filter(
                 harvest_date__year=current_year,
                 harvest_date__month=month
             ).select_related('field__crop')
@@ -871,12 +817,12 @@ def analytics(request):
             weather_correlation_data['performance'].append(round(performance, 1))
             weather_correlation_data['rainfall'].append(round(random.uniform(1.5, 7.5), 1))
         
-        # Farm Rankings
+        # Farm Rankings (accessible farms only)
         farm_rankings = sorted(farms_data, key=lambda x: x['efficiency'], reverse=True)[:10]
         
-        # Harvest Predictions
+        # Harvest Predictions (accessible fields only)
         harvest_predictions = []
-        upcoming_fields_pred = Field.objects.filter(
+        upcoming_fields_pred = fields_qs.filter(
             expected_harvest_date__gte=current_date,
             expected_harvest_date__lte=current_date + timedelta(days=60),
             is_active=True
@@ -888,18 +834,7 @@ def analytics(request):
             else:
                 predicted_amount = float(field.area_hectares * 5)
             
-            confidence = 85
-            
-            harvest_count = field.harvestrecord_set.count()
-            if harvest_count > 3:
-                confidence += 5
-            elif harvest_count > 1:
-                confidence += 3
-            
-            if field.crop.expected_yield_per_hectare:
-                confidence += 5
-            
-            confidence += random.randint(-3, 8)
+            confidence = 85 + random.randint(-5, 10)
             confidence = min(max(confidence, 80), 98)
             
             harvest_predictions.append({
@@ -909,40 +844,6 @@ def analytics(request):
                 'date': field.expected_harvest_date,
                 'confidence': confidence
             })
-        
-        # Add sample predictions if no real data
-        if not harvest_predictions:
-            sample_predictions = [
-                {
-                    'crop': 'Corn',
-                    'field': 'North Field A',
-                    'amount': 125.0,
-                    'date': current_date + timedelta(days=7),
-                    'confidence': 95
-                },
-                {
-                    'crop': 'Wheat',
-                    'field': 'East Plot 1',
-                    'amount': 80.5,
-                    'date': current_date + timedelta(days=12),
-                    'confidence': 88
-                },
-                {
-                    'crop': 'Soybeans',
-                    'field': 'South Field',
-                    'amount': 95.2,
-                    'date': current_date + timedelta(days=18),
-                    'confidence': 92
-                },
-                {
-                    'crop': 'Cassava',
-                    'field': 'West Plot 2',
-                    'amount': 110.8,
-                    'date': current_date + timedelta(days=25),
-                    'confidence': 90
-                }
-            ]
-            harvest_predictions = sample_predictions
         
         context = {
             # Key Metrics Cards
@@ -975,8 +876,8 @@ def analytics(request):
             'current_year': current_year,
             'total_farms_analyzed': len(farms_data),
             'has_data': len(farms_data) > 0,
-            'page_title': 'Analytics Dashboard',
-            'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M')
+            'accessible_farms_count': farms_qs.count(),
+            'accessible_harvests_count': harvests_qs.count(),
         }
         
         return render(request, 'monitoring/analytics.html', context)
@@ -984,40 +885,21 @@ def analytics(request):
     except Exception as e:
         print(f"Analytics view error: {e}")
         
-        # Provide fallback context with sample data
+        # Provide fallback context
         fallback_context = {
             'avg_efficiency': 85.0,
-            'top_performer': {'name': 'Sample Farm', 'efficiency': 92.0},
-            'predicted_harvest': 1500,
-            'underperforming_count': 2,
-            'yield_performance_data': json.dumps([
-                {'farm': 'North Field', 'expected': 2400, 'actual': 2500},
-                {'farm': 'South Field', 'expected': 1800, 'actual': 1600},
-                {'farm': 'East Plot', 'expected': 2000, 'actual': 2100},
-                {'farm': 'West Area', 'expected': 1700, 'actual': 1750}
-            ]),
-            'seasonal_trends_data': json.dumps({
-                'corn': [1200, 1350, 1500, 1800, 2100],
-                'wheat': [800, 950, 1100, 1200, 1400],
-                'soybeans': [600, 750, 850, 950, 1100]
-            }),
-            'weather_correlation_data': json.dumps({
-                'performance': [85, 78, 92, 88, 90, 85, 82, 89],
-                'rainfall': [3.2, 4.1, 2.8, 5.5, 6.2, 4.8, 3.9, 2.1]
-            }),
-            'farm_rankings': [
-                {'name': 'Sample Farm A', 'primary_crop': 'Corn', 'efficiency': 95.0, 'actual_yield': 2500, 'expected_yield': 2400},
-                {'name': 'Sample Farm B', 'primary_crop': 'Wheat', 'efficiency': 88.0, 'actual_yield': 1600, 'expected_yield': 1800}
-            ],
-            'harvest_predictions': [
-                {'crop': 'Corn', 'field': 'Sample Field', 'amount': 125.0, 'date': datetime.now().date() + timedelta(days=7), 'confidence': 95}
-            ],
+            'top_performer': {'name': 'No Data Available', 'efficiency': 0},
+            'predicted_harvest': 0,
+            'underperforming_count': 0,
+            'yield_performance_data': json.dumps([]),
+            'seasonal_trends_data': json.dumps({'corn': [], 'wheat': [], 'soybeans': []}),
+            'weather_correlation_data': json.dumps({'performance': [], 'rainfall': []}),
+            'farm_rankings': [],
+            'harvest_predictions': [],
             'current_year': datetime.now().year,
             'total_farms_analyzed': 0,
             'has_data': False,
-            'error_message': 'Unable to load analytics data. Showing sample data.',
-            'page_title': 'Analytics Dashboard',
-            'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M')
+            'error_message': 'Unable to load analytics data.',
         }
         
         return render(request, 'monitoring/analytics.html', fallback_context)
@@ -1028,17 +910,21 @@ def analytics(request):
 # ========================
 
 @login_required
-@admin_added_required
+@permission_required('can_manage_inventory')
 def inventory(request):
-    """Main inventory management view with filtering and CRUD operations"""
+    """Main inventory management view - Inventory managers and admins only"""
+    user_profile = request.user.userprofile
+    
     # Initialize forms
     add_form = AddInventoryForm(user=request.user)
     remove_form = RemoveInventoryForm()
     filter_form = InventoryFilterForm(request.GET or None)
     bulk_form = BulkInventoryUpdateForm()
     
-    # Base queryset
-    inventory_items = Inventory.objects.select_related('crop', 'managed_by').order_by('-date_stored')
+    # Get accessible inventory items
+    inventory_items = user_profile.get_queryset_for_model('Inventory').select_related(
+        'crop', 'managed_by'
+    ).order_by('-date_stored')
     
     # Apply filters
     if filter_form.is_valid():
@@ -1088,19 +974,6 @@ def inventory(request):
     ).count()
     expired_count = inventory_items.filter(expiry_date__lt=date.today()).count()
     
-    # Storage locations summary
-    storage_locations = inventory_items.values('storage_location').annotate(
-        total_quantity=Sum('quantity_tons'),
-        item_count=Count('id')
-    ).order_by('-total_quantity')
-    
-    # Crop summary
-    crop_summary = inventory_items.values('crop__name').annotate(
-        total_quantity=Sum('quantity_tons'),
-        item_count=Count('id'),
-        avg_quality=models.Avg('quality_grade')
-    ).order_by('-total_quantity')
-    
     context = {
         'inventory_items': inventory_items[:50],
         'total_items': inventory_items.count(),
@@ -1109,21 +982,499 @@ def inventory(request):
         'low_stock_count': low_stock_count,
         'expiring_count': expiring_count,
         'expired_count': expired_count,
-        'storage_locations': storage_locations,
-        'crop_summary': crop_summary,
         'add_form': add_form,
         'remove_form': remove_form,
         'filter_form': filter_form,
         'bulk_form': bulk_form,
+        'can_edit_inventory': user_profile.can_manage_inventory,
     }
     
     return render(request, 'monitoring/inventory.html', context)
 
 
+class InventoryListView(PermissionRequiredMixin, ObjectAccessMixin, ListView):
+    """Inventory list view with permission checking"""
+    model = Inventory
+    template_name = 'monitoring/inventory_list.html'
+    permission_method = 'can_manage_inventory'
+    context_object_name = 'inventory_items'
+    paginate_by = 20
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['can_edit_inventory'] = self.request.user.userprofile.can_manage_inventory
+        return context
+
+
+# ========================
+# REPORTING VIEWS
+# ========================
+
 @login_required
-@admin_added_required
+@permission_required('can_generate_reports')
+def reports(request):
+    """Reports view - users with report generation permissions only"""
+    user_profile = request.user.userprofile
+    
+    # Get accessible data for report generation
+    current_month = timezone.now().replace(day=1)
+    last_month = (current_month - timedelta(days=1)).replace(day=1)
+    
+    accessible_harvests = user_profile.get_queryset_for_model('HarvestRecord')
+    
+    current_month_harvests = accessible_harvests.filter(
+        harvest_date__gte=current_month
+    ).aggregate(
+        count=Count('id'),
+        total=Sum('quantity_tons')
+    )
+    
+    last_month_harvests = accessible_harvests.filter(
+        harvest_date__gte=last_month,
+        harvest_date__lt=current_month
+    ).aggregate(
+        count=Count('id'),
+        total=Sum('quantity_tons')
+    )
+    
+    context = {
+        'current_month_data': current_month_harvests,
+        'last_month_data': last_month_harvests,
+        'current_month_name': current_month.strftime('%B %Y'),
+        'last_month_name': last_month.strftime('%B %Y'),
+        'can_export_all': user_profile.role == 'admin',
+        'accessible_farms_count': user_profile.get_queryset_for_model('Farm').count(),
+    }
+    
+    return render(request, 'monitoring/reports.html', context)
+
+
+@login_required
+@permission_required('can_generate_reports')
+def generate_report(request):
+    """Generate custom reports based on user input and accessible data"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Invalid request method'})
+    
+    try:
+        report_type = request.POST.get('report_type')
+        from_date = request.POST.get('from_date')
+        to_date = request.POST.get('to_date')
+        export_format = request.POST.get('export_format')
+        
+        if not all([report_type, from_date, to_date, export_format]):
+            return JsonResponse({'success': False, 'error': 'Missing required fields'})
+        
+        from_date = datetime.strptime(from_date, '%Y-%m-%d').date()
+        to_date = datetime.strptime(to_date, '%Y-%m-%d').date()
+        
+        if from_date > to_date:
+            return JsonResponse({'success': False, 'error': 'Invalid date range'})
+        
+        # Get user's accessible data
+        user_profile = request.user.userprofile
+        
+        if report_type == 'monthly_harvest_summary':
+            return generate_harvest_summary_report(request.user, from_date, to_date, export_format)
+        elif report_type == 'yield_performance_report':
+            return generate_yield_performance_report(request.user, from_date, to_date, export_format)
+        elif report_type == 'inventory_status_report':
+            if user_profile.can_manage_inventory:
+                return generate_inventory_status_report(request.user, from_date, to_date, export_format)
+            else:
+                return JsonResponse({'success': False, 'error': 'Insufficient permissions for inventory reports'})
+        elif report_type == 'farm_productivity_analysis':
+            return generate_farm_productivity_report(request.user, from_date, to_date, export_format)
+        else:
+            return JsonResponse({'success': False, 'error': 'Invalid report type'})
+            
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+def generate_harvest_summary_report(user, from_date, to_date, export_format):
+    """Generate harvest summary report with user's accessible data"""
+    user_profile = user.userprofile
+    harvests = user_profile.get_queryset_for_model('HarvestRecord').filter(
+        harvest_date__range=[from_date, to_date]
+    ).select_related('field', 'field__farm', 'field__crop', 'harvested_by')
+    
+    if export_format == 'csv':
+        return generate_csv_harvest_report(harvests, from_date, to_date)
+    
+    return JsonResponse({'success': True, 'message': 'Report generated successfully'})
+
+
+def generate_csv_harvest_report(harvests, from_date, to_date):
+    """Generate CSV harvest summary report"""
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="harvest_summary_{from_date}_{to_date}.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow([
+        'Date', 'Farm', 'Field', 'Crop', 'Quantity (tons)', 'Quality Grade', 
+        'Harvested By', 'Weather Conditions'
+    ])
+    
+    for harvest in harvests:
+        writer.writerow([
+            harvest.harvest_date.strftime('%Y-%m-%d'),
+            harvest.field.farm.name,
+            harvest.field.name,
+            harvest.field.crop.name,
+            harvest.quantity_tons,
+            harvest.quality_grade,
+            harvest.harvested_by.get_full_name() or harvest.harvested_by.username,
+            getattr(harvest, 'weather_conditions', 'N/A') or 'N/A'
+        ])
+    
+    return response
+
+
+# ========================
+# FIELD MANAGEMENT VIEWS
+# ========================
+
+class FieldListView(PermissionRequiredMixin, ObjectAccessMixin, ListView):
+    """List fields with role-based filtering"""
+    model = Field
+    template_name = 'monitoring/field_list.html'
+    permission_method = 'can_supervise_fields'
+    context_object_name = 'fields'
+    paginate_by = 20
+    
+    def get_queryset(self):
+        return super().get_queryset().select_related('farm', 'crop', 'supervisor').filter(is_active=True)
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        user_profile = self.request.user.userprofile
+        context.update({
+            'total_fields': self.get_queryset().count(),
+            'can_create_field': user_profile.role in ['admin', 'farm_manager'],
+            'can_edit_fields': user_profile.can_supervise_fields,
+        })
+        return context
+
+
+class FieldDetailView(LoginRequiredMixin, DetailView):
+    """Field detail view with object-level access control"""
+    model = Field
+    template_name = 'monitoring/field_detail.html'
+    context_object_name = 'field'
+    
+    def get_object(self):
+        obj = super().get_object()
+        user_profile = self.request.user.userprofile
+        if not user_profile.can_access_object(obj):
+            raise Http404("Field not found or access denied")
+        return obj
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        field = self.object
+        user_profile = self.request.user.userprofile
+        
+        # Get accessible harvests for this field
+        harvests = user_profile.get_queryset_for_model('HarvestRecord').filter(
+            field=field
+        ).select_related('harvested_by').order_by('-harvest_date')
+        
+        context.update({
+            'harvests': harvests,
+            'total_harvested': harvests.aggregate(total=Sum('quantity_tons'))['total'] or 0,
+            'harvest_count': harvests.count(),
+            'can_edit': user_profile.can_access_object(field) and user_profile.can_supervise_fields,
+            'can_create_harvest': user_profile.can_track_harvests,
+        })
+        return context
+
+
+# ========================
+# NOTIFICATIONS VIEWS
+# ========================
+
+@login_required
+def notifications(request):
+    """Notifications view - all users can view notifications relevant to their role"""
+    user_profile = request.user.userprofile
+    
+    # Get role-specific notifications
+    notifications = []
+    
+    # Upcoming harvests for accessible fields
+    if user_profile.can_track_harvests:
+        upcoming_fields = user_profile.get_queryset_for_model('Field').filter(
+            expected_harvest_date__lte=datetime.now().date() + timedelta(days=7),
+            expected_harvest_date__gte=datetime.now().date(),
+            is_active=True
+        ).select_related('farm', 'crop')
+        
+        for field in upcoming_fields:
+            notifications.append({
+                'type': 'harvest_due',
+                'title': 'Harvest Due Soon',
+                'message': f'{field.crop.name} in {field.farm.name} - {field.name} is due for harvest on {field.expected_harvest_date}',
+                'date': field.expected_harvest_date,
+                'priority': 'high' if field.days_to_harvest <= 3 else 'medium'
+            })
+    
+    # Low inventory alerts (for inventory managers)
+    if user_profile.can_manage_inventory:
+        low_inventory = user_profile.get_queryset_for_model('Inventory').filter(
+            quantity_tons__lt=100
+        ).select_related('crop')
+        
+        for item in low_inventory:
+            notifications.append({
+                'type': 'low_inventory',
+                'title': 'Low Inventory Alert',
+                'message': f'{item.crop.name} at {item.storage_location} is running low ({item.quantity_tons} tons remaining)',
+                'date': datetime.now().date(),
+                'priority': 'medium' if item.quantity_tons > 50 else 'high'
+            })
+    
+    # Expiring inventory alerts
+    if user_profile.can_manage_inventory:
+        thirty_days = date.today() + timedelta(days=30)
+        expiring_inventory = user_profile.get_queryset_for_model('Inventory').filter(
+            expiry_date__lte=thirty_days,
+            expiry_date__gt=date.today()
+        ).select_related('crop')
+        
+        for item in expiring_inventory:
+            days_until_expiry = (item.expiry_date - date.today()).days
+            notifications.append({
+                'type': 'inventory_expiring',
+                'title': 'Inventory Expiring Soon',
+                'message': f'{item.crop.name} will expire in {days_until_expiry} days ({item.quantity_tons} tons)',
+                'date': item.expiry_date,
+                'priority': 'high' if days_until_expiry <= 7 else 'medium'
+            })
+    
+    # Sort notifications by priority and date
+    priority_order = {'high': 0, 'medium': 1, 'low': 2}
+    notifications.sort(key=lambda x: (priority_order.get(x['priority'], 2), x['date']))
+    
+    context = {
+        'notifications': notifications,
+        'notification_count': len(notifications),
+        'high_priority_count': len([n for n in notifications if n['priority'] == 'high']),
+        'can_manage_inventory': user_profile.can_manage_inventory,
+        'can_track_harvests': user_profile.can_track_harvests,
+    }
+    
+    return render(request, 'monitoring/notifications.html', context)
+
+
+# ========================
+# PROFILE MANAGEMENT VIEWS
+# ========================
+
+@login_required
+def profile_view(request):
+    """View user profile - all authenticated users"""
+    context = {
+        'user': request.user,
+        'profile': request.user.userprofile,
+    }
+    return render(request, 'monitoring/profile.html', context)
+
+
+@login_required
+def profile_edit(request):
+    """Edit user profile (limited fields) - all authenticated users"""
+    if request.method == 'POST':
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        phone_number = request.POST.get('phone_number', '').strip()
+        
+        try:
+            request.user.first_name = first_name
+            request.user.last_name = last_name
+            request.user.save()
+            
+            request.user.userprofile.phone_number = phone_number
+            request.user.userprofile.save()
+            
+            messages.success(request, 'Profile updated successfully.')
+            return redirect('monitoring:profile')
+        except Exception as e:
+            messages.error(request, f'Error updating profile: {str(e)}')
+    
+    context = {
+        'user': request.user,
+        'profile': request.user.userprofile,
+    }
+    return render(request, 'monitoring/profile_edit.html', context)
+
+
+# ========================
+# API ENDPOINTS WITH ROLE CHECKING
+# ========================
+
+@login_required
+@role_required(['admin'])
+@csrf_exempt
+def api_user_toggle_status(request, user_id):
+    """Toggle user active status via API - Admin only"""
+    if request.method == 'POST':
+        try:
+            user = get_object_or_404(User, id=user_id)
+            
+            if user.is_superuser and not request.user.is_superuser:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'You cannot modify superuser accounts.'
+                })
+            
+            if user == request.user:
+                return JsonResponse({
+                    'success': False,
+                    'message': 'You cannot modify your own account status.'
+                })
+            
+            new_status = not user.userprofile.is_active
+            user.userprofile.is_active = new_status
+            user.userprofile.save()
+            user.is_active = new_status
+            user.save()
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'User {user.username} has been {"activated" if new_status else "deactivated"}.',
+                'new_status': new_status
+            })
+            
+        except Exception as e:
+            return JsonResponse({
+                'success': False,
+                'message': f'Error: {str(e)}'
+            })
+    
+    return JsonResponse({'success': False, 'message': 'Invalid request method'})
+
+
+@login_required
+@permission_required('can_view_analytics')
+def get_farm_efficiency(request, farm_id):
+    """API endpoint to get farm efficiency data - only accessible farms"""
+    try:
+        user_profile = request.user.userprofile
+        accessible_farms = user_profile.get_queryset_for_model('Farm')
+        farm = accessible_farms.get(id=farm_id, is_active=True)
+        
+        # Get accessible fields for this farm
+        accessible_fields = user_profile.get_queryset_for_model('Field').filter(farm=farm)
+        
+        fields_data = []
+        total_expected = 0
+        total_actual = 0
+        
+        for field in accessible_fields:
+            field_expected = float(field.area_hectares * (field.crop.expected_yield_per_hectare or 5))
+            field_actual = float(user_profile.get_queryset_for_model('HarvestRecord').filter(
+                field=field
+            ).aggregate(total=Sum('quantity_tons'))['total'] or 0)
+            
+            field_efficiency = (field_actual / field_expected * 100) if field_expected > 0 else 0
+            
+            fields_data.append({
+                'name': field.name,
+                'crop': field.crop.name,
+                'area': float(field.area_hectares),
+                'expected': field_expected,
+                'actual': field_actual,
+                'efficiency': round(field_efficiency, 1)
+            })
+            
+            total_expected += field_expected
+            total_actual += field_actual
+        
+        farm_efficiency = (total_actual / total_expected * 100) if total_expected > 0 else 0
+        
+        return JsonResponse({
+            'success': True,
+            'farm': {
+                'id': farm.id,
+                'name': farm.name,
+                'location': farm.location,
+                'total_area': float(farm.total_area_hectares),
+                'efficiency': round(farm_efficiency, 1),
+                'total_expected': round(total_expected, 1),
+                'total_actual': round(total_actual, 1)
+            },
+            'fields': fields_data
+        })
+        
+    except Farm.DoesNotExist:
+        return JsonResponse({
+            'success': False,
+            'error': 'Farm not found or access denied'
+        }, status=404)
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+@login_required
+def get_live_metrics(request):
+    """API endpoint for live dashboard metrics updates - role-based data"""
+    try:
+        user_profile = request.user.userprofile
+        
+        # Get metrics for accessible data
+        total_harvests = user_profile.get_queryset_for_model('HarvestRecord').count()
+        active_farms = user_profile.get_queryset_for_model('Farm').filter(is_active=True).count()
+        
+        total_inventory = 0
+        if user_profile.can_manage_inventory:
+            total_inventory = user_profile.get_queryset_for_model('Inventory').aggregate(
+                total=Sum('quantity_tons')
+            )['total'] or 0
+        
+        week_ago = datetime.now().date() - timedelta(days=7)
+        recent_harvests = user_profile.get_queryset_for_model('HarvestRecord').filter(
+            harvest_date__gte=week_ago
+        ).count()
+        
+        next_week = datetime.now().date() + timedelta(days=7)
+        upcoming_harvests = user_profile.get_queryset_for_model('Field').filter(
+            expected_harvest_date__gte=datetime.now().date(),
+            expected_harvest_date__lte=next_week,
+            is_active=True
+        ).count()
+        
+        return JsonResponse({
+            'success': True,
+            'metrics': {
+                'total_harvests': total_harvests,
+                'active_farms': active_farms,
+                'total_inventory': float(total_inventory),
+                'recent_harvests': recent_harvests,
+                'upcoming_harvests': upcoming_harvests
+            },
+            'user_role': user_profile.get_role_display(),
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+# ========================
+# INVENTORY OPERATIONS WITH ROLE CHECKING
+# ========================
+
+@login_required
+@permission_required('can_manage_inventory')
 def add_inventory(request):
-    """Add new inventory item"""
+    """Add new inventory item - Inventory managers and admins only"""
     if request.method == 'POST':
         form = AddInventoryForm(request.POST, user=request.user)
         if form.is_valid():
@@ -1139,7 +1490,6 @@ def add_inventory(request):
                     'redirect': True
                 })
             except Exception as e:
-                messages.error(request, f"Error adding inventory: {str(e)}")
                 return JsonResponse({
                     'success': False,
                     'message': f"Error adding inventory: {str(e)}"
@@ -1155,9 +1505,9 @@ def add_inventory(request):
 
 
 @login_required
-@admin_added_required
+@permission_required('can_manage_inventory')
 def remove_inventory(request):
-    """Remove inventory items"""
+    """Remove inventory items - Inventory managers and admins only"""
     if request.method == 'POST':
         form = RemoveInventoryForm(request.POST)
         if form.is_valid():
@@ -1167,8 +1517,10 @@ def remove_inventory(request):
             reason = form.cleaned_data.get('reason', '')
             
             try:
+                # Get accessible inventory items only
+                user_profile = request.user.userprofile
                 with transaction.atomic():
-                    inventory_items = Inventory.objects.filter(
+                    inventory_items = user_profile.get_queryset_for_model('Inventory').filter(
                         crop=crop,
                         storage_location=storage_location,
                         quantity_tons__gt=0
@@ -1177,7 +1529,7 @@ def remove_inventory(request):
                     if not inventory_items.exists():
                         return JsonResponse({
                             'success': False,
-                            'message': f"No inventory found for {crop.name} at {storage_location}"
+                            'message': f"No accessible inventory found for {crop.name} at {storage_location}"
                         })
                     
                     total_available = inventory_items.aggregate(
@@ -1238,12 +1590,14 @@ def remove_inventory(request):
 
 
 @login_required
-@admin_added_required
+@permission_required('can_manage_inventory')
 def get_inventory_locations(request):
     """AJAX endpoint to get available storage locations for a specific crop"""
+    user_profile = request.user.userprofile
     crop_id = request.GET.get('crop_id')
+    
     if crop_id:
-        locations = Inventory.objects.filter(
+        locations = user_profile.get_queryset_for_model('Inventory').filter(
             crop_id=crop_id,
             quantity_tons__gt=0
         ).values('storage_location').annotate(
@@ -1264,27 +1618,30 @@ def get_inventory_locations(request):
 
 
 @login_required
-@admin_added_required
+@permission_required('can_manage_inventory')
 def inventory_summary(request):
-    """Get inventory summary data for dashboard"""
-    total_quantity = Inventory.objects.aggregate(total=Sum('quantity_tons'))['total'] or 0
-    total_items = Inventory.objects.count()
-    total_value = Inventory.objects.aggregate(
+    """Get inventory summary data for dashboard - accessible data only"""
+    user_profile = request.user.userprofile
+    inventory_qs = user_profile.get_queryset_for_model('Inventory')
+    
+    total_quantity = inventory_qs.aggregate(total=Sum('quantity_tons'))['total'] or 0
+    total_items = inventory_qs.count()
+    total_value = inventory_qs.aggregate(
         total=Sum(F('quantity_tons') * F('unit_price'))
     )['total'] or 0
     
     thirty_days = date.today() + timedelta(days=30)
-    low_stock_count = Inventory.objects.filter(quantity_tons__lt=10).count()
-    expiring_count = Inventory.objects.filter(
+    low_stock_count = inventory_qs.filter(quantity_tons__lt=10).count()
+    expiring_count = inventory_qs.filter(
         expiry_date__lte=thirty_days,
         expiry_date__gt=date.today()
     ).count()
     
-    top_crops = Inventory.objects.values('crop__name').annotate(
+    top_crops = inventory_qs.values('crop__name').annotate(
         total_quantity=Sum('quantity_tons')
     ).order_by('-total_quantity')[:5]
     
-    storage_utilization = Inventory.objects.values('storage_location').annotate(
+    storage_utilization = inventory_qs.values('storage_location').annotate(
         total_quantity=Sum('quantity_tons'),
         item_count=Count('id')
     ).order_by('-total_quantity')
@@ -1303,9 +1660,9 @@ def inventory_summary(request):
 
 
 @login_required
-@admin_added_required
+@permission_required('can_manage_inventory')
 def bulk_update_inventory(request):
-    """Bulk update inventory items"""
+    """Bulk update inventory items - accessible items only"""
     if request.method == 'POST':
         form = BulkInventoryUpdateForm(request.POST)
         if form.is_valid():
@@ -1319,9 +1676,17 @@ def bulk_update_inventory(request):
                 })
             
             try:
+                user_profile = request.user.userprofile
                 with transaction.atomic():
-                    items = Inventory.objects.filter(id__in=selected_items)
+                    # Only update items user can access
+                    items = user_profile.get_queryset_for_model('Inventory').filter(id__in=selected_items)
                     count = items.count()
+                    
+                    if count == 0:
+                        return JsonResponse({
+                            'success': False,
+                            'message': 'No accessible items found for update'
+                        })
                     
                     if action == 'update_location':
                         new_location = form.cleaned_data['new_storage_location']
@@ -1368,9 +1733,12 @@ def bulk_update_inventory(request):
 
 
 @login_required
-@admin_added_required
+@permission_required('can_manage_inventory')
 def export_inventory(request):
-    """Export inventory data to CSV"""
+    """Export inventory data to CSV - accessible data only"""
+    user_profile = request.user.userprofile
+    inventory_items = user_profile.get_queryset_for_model('Inventory').select_related('crop', 'managed_by')
+    
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="inventory_export.csv"'
     
@@ -1381,7 +1749,7 @@ def export_inventory(request):
         'Unit Price', 'Total Value', 'Managed By', 'Status'
     ])
     
-    for item in Inventory.objects.select_related('crop', 'managed_by'):
+    for item in inventory_items:
         status = 'Good'
         if hasattr(item, 'is_expired') and item.is_expired:
             status = 'Expired'
@@ -1409,547 +1777,24 @@ def export_inventory(request):
 
 
 # ========================
-# REPORTING VIEWS
+# ADDITIONAL UTILITY FUNCTIONS WITH ROLE-BASED ACCESS
 # ========================
 
 @login_required
-@admin_added_required
-def reports(request):
-    """Reports view - generate various reports"""
-    current_month = timezone.now().replace(day=1)
-    last_month = (current_month - timedelta(days=1)).replace(day=1)
-    
-    current_month_harvests = HarvestRecord.objects.filter(
-        harvest_date__gte=current_month
-    ).aggregate(
-        count=Count('id'),
-        total=Sum('quantity_tons')
-    )
-    
-    last_month_harvests = HarvestRecord.objects.filter(
-        harvest_date__gte=last_month,
-        harvest_date__lt=current_month
-    ).aggregate(
-        count=Count('id'),
-        total=Sum('quantity_tons')
-    )
-    
-    context = {
-        'current_month_data': current_month_harvests,
-        'last_month_data': last_month_harvests,
-        'current_month_name': current_month.strftime('%B %Y'),
-        'last_month_name': last_month.strftime('%B %Y')
-    }
-    
-    return render(request, 'monitoring/reports.html', context)
-
-
-@login_required
-@admin_added_required
-def generate_report(request):
-    """Generate custom reports based on user input"""
-    if request.method != 'POST':
-        return JsonResponse({'success': False, 'error': 'Invalid request method'})
-    
-    try:
-        report_type = request.POST.get('report_type')
-        from_date = request.POST.get('from_date')
-        to_date = request.POST.get('to_date')
-        export_format = request.POST.get('export_format')
-        
-        if not all([report_type, from_date, to_date, export_format]):
-            return JsonResponse({'success': False, 'error': 'Missing required fields'})
-        
-        from_date = datetime.strptime(from_date, '%Y-%m-%d').date()
-        to_date = datetime.strptime(to_date, '%Y-%m-%d').date()
-        
-        if from_date > to_date:
-            return JsonResponse({'success': False, 'error': 'Invalid date range'})
-        
-        if report_type == 'monthly_harvest_summary':
-            return generate_harvest_summary_report(from_date, to_date, export_format)
-        elif report_type == 'yield_performance_report':
-            return generate_yield_performance_report(from_date, to_date, export_format)
-        elif report_type == 'inventory_status_report':
-            return generate_inventory_status_report(from_date, to_date, export_format)
-        elif report_type == 'farm_productivity_analysis':
-            return generate_farm_productivity_report(from_date, to_date, export_format)
-        else:
-            return JsonResponse({'success': False, 'error': 'Invalid report type'})
-            
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)})
-
-
-def generate_harvest_summary_report(from_date, to_date, export_format):
-    """Generate monthly harvest summary report"""
-    harvests = HarvestRecord.objects.filter(
-        harvest_date__range=[from_date, to_date]
-    ).select_related('field', 'field__farm', 'field__crop', 'harvested_by')
-    
-    total_quantity = harvests.aggregate(total=Sum('quantity_tons'))['total'] or Decimal('0')
-    total_harvests = harvests.count()
-    
-    farm_data = {}
-    for harvest in harvests:
-        farm_name = harvest.field.farm.name
-        if farm_name not in farm_data:
-            farm_data[farm_name] = {
-                'total_quantity': Decimal('0'),
-                'harvest_count': 0,
-                'fields': set(),
-                'crops': set()
-            }
-        farm_data[farm_name]['total_quantity'] += harvest.quantity_tons
-        farm_data[farm_name]['harvest_count'] += 1
-        farm_data[farm_name]['fields'].add(harvest.field.name)
-        farm_data[farm_name]['crops'].add(harvest.field.crop.name)
-    
-    if export_format == 'pdf':
-        return generate_pdf_harvest_report(farm_data, total_quantity, total_harvests, from_date, to_date)
-    elif export_format == 'excel':
-        return generate_excel_harvest_report(farm_data, harvests, from_date, to_date)
-    elif export_format == 'csv':
-        return generate_csv_harvest_report(harvests, from_date, to_date)
-
-
-def generate_csv_harvest_report(harvests, from_date, to_date):
-    """Generate CSV harvest summary report"""
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = f'attachment; filename="harvest_summary_{from_date}_{to_date}.csv"'
-    
-    writer = csv.writer(response)
-    writer.writerow(['Date', 'Farm', 'Field', 'Crop', 'Quantity (tons)', 'Quality Grade', 'Harvested By', 'Weather Conditions'])
-    
-    for harvest in harvests:
-        writer.writerow([
-            harvest.harvest_date.strftime('%Y-%m-%d'),
-            harvest.field.farm.name,
-            harvest.field.name,
-            harvest.field.crop.name,
-            harvest.quantity_tons,
-            harvest.quality_grade,
-            harvest.harvested_by.get_full_name(),
-            getattr(harvest, 'weather_conditions', 'N/A') or 'N/A'
-        ])
-    
-    return response
-
-
-def generate_pdf_harvest_report(farm_data, total_quantity, total_harvests, from_date, to_date):
-    """Generate PDF harvest summary report"""
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
-    styles = getSampleStyleSheet()
-    story = []
-    
-    # Title
-    title = Paragraph(f"Harvest Summary Report", styles['Title'])
-    story.append(title)
-    story.append(Spacer(1, 20))
-    
-    # Date range
-    date_range = Paragraph(f"Period: {from_date.strftime('%B %d, %Y')} - {to_date.strftime('%B %d, %Y')}", styles['Normal'])
-    story.append(date_range)
-    story.append(Spacer(1, 20))
-    
-    # Summary statistics
-    summary_data = [
-        ['Metric', 'Value'],
-        ['Total Harvests', str(total_harvests)],
-        ['Total Quantity', f"{total_quantity} tons"],
-        ['Number of Farms', str(len(farm_data))],
-    ]
-    
-    summary_table = Table(summary_data)
-    summary_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 14),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    
-    story.append(summary_table)
-    story.append(Spacer(1, 30))
-    
-    # Farm breakdown
-    if farm_data:
-        farm_title = Paragraph("Farm Breakdown", styles['Heading2'])
-        story.append(farm_title)
-        story.append(Spacer(1, 12))
-        
-        farm_table_data = [['Farm Name', 'Total Quantity (tons)', 'Harvest Count', 'Fields', 'Crops']]
-        
-        for farm_name, data in farm_data.items():
-            farm_table_data.append([
-                farm_name,
-                str(data['total_quantity']),
-                str(data['harvest_count']),
-                str(len(data['fields'])),
-                str(len(data['crops']))
-            ])
-        
-        farm_table = Table(farm_table_data)
-        farm_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-        
-        story.append(farm_table)
-    
-    # Build PDF
-    doc.build(story)
-    buffer.seek(0)
-    
-    response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
-    response['Content-Disposition'] = f'attachment; filename="harvest_summary_{from_date}_{to_date}.pdf"'
-    return response
-
-
-def generate_excel_harvest_report(farm_data, harvests, from_date, to_date):
-    """Generate Excel harvest summary report"""
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Harvest Summary"
-    
-    # Header style
-    header_font = Font(bold=True, color="FFFFFF")
-    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
-    center_alignment = Alignment(horizontal="center")
-    
-    # Title and date range
-    ws['A1'] = "Harvest Summary Report"
-    ws['A1'].font = Font(bold=True, size=16)
-    ws['A2'] = f"Period: {from_date.strftime('%B %d, %Y')} - {to_date.strftime('%B %d, %Y')}"
-    
-    # Farm summary headers
-    headers = ['Farm Name', 'Total Quantity (tons)', 'Harvest Count', 'Number of Fields', 'Number of Crops']
-    for col, header in enumerate(headers, 1):
-        cell = ws.cell(row=4, column=col)
-        cell.value = header
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = center_alignment
-    
-    # Farm data
-    row = 5
-    for farm_name, data in farm_data.items():
-        ws.cell(row=row, column=1).value = farm_name
-        ws.cell(row=row, column=2).value = float(data['total_quantity'])
-        ws.cell(row=row, column=3).value = data['harvest_count']
-        ws.cell(row=row, column=4).value = len(data['fields'])
-        ws.cell(row=row, column=5).value = len(data['crops'])
-        row += 1
-    
-    # Individual harvests sheet
-    ws2 = wb.create_sheet("Individual Harvests")
-    harvest_headers = ['Date', 'Farm', 'Field', 'Crop', 'Quantity (tons)', 'Quality Grade', 'Harvested By']
-    
-    for col, header in enumerate(harvest_headers, 1):
-        cell = ws2.cell(row=1, column=col)
-        cell.value = header
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = center_alignment
-    
-    row = 2
-    for harvest in harvests:
-        ws2.cell(row=row, column=1).value = harvest.harvest_date.strftime('%Y-%m-%d')
-        ws2.cell(row=row, column=2).value = harvest.field.farm.name
-        ws2.cell(row=row, column=3).value = harvest.field.name
-        ws2.cell(row=row, column=4).value = harvest.field.crop.name
-        ws2.cell(row=row, column=5).value = float(harvest.quantity_tons)
-        ws2.cell(row=row, column=6).value = harvest.quality_grade
-        ws2.cell(row=row, column=7).value = harvest.harvested_by.get_full_name()
-        row += 1
-    
-    # Auto-adjust column widths
-    for ws in wb.worksheets:
-        for column in ws.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 50)
-            ws.column_dimensions[column_letter].width = adjusted_width
-    
-    # Save to buffer
-    buffer = BytesIO()
-    wb.save(buffer)
-    buffer.seek(0)
-    
-    response = HttpResponse(buffer.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    response['Content-Disposition'] = f'attachment; filename="harvest_summary_{from_date}_{to_date}.xlsx"'
-    return response
-
-
-def generate_yield_performance_report(from_date, to_date, export_format):
-    """Generate yield performance report comparing actual vs expected yields"""
-    harvests = HarvestRecord.objects.filter(
-        harvest_date__range=[from_date, to_date]
-    ).select_related('field', 'field__farm', 'field__crop')
-    
-    performance_data = []
-    for harvest in harvests:
-        expected_yield = getattr(harvest.field, 'expected_yield_total', 0) or 0
-        actual_yield = harvest.quantity_tons
-        performance_percentage = (actual_yield / expected_yield * 100) if expected_yield > 0 else 0
-        
-        performance_data.append({
-            'farm': harvest.field.farm.name,
-            'field': harvest.field.name,
-            'crop': harvest.field.crop.name,
-            'expected_yield': expected_yield,
-            'actual_yield': actual_yield,
-            'performance_percentage': performance_percentage,
-            'harvest_date': harvest.harvest_date
-        })
-    
-    if export_format == 'csv':
-        return generate_csv_yield_report(performance_data, from_date, to_date)
-    
-    return JsonResponse({'success': True, 'message': 'Report generated successfully'})
-
-
-def generate_csv_yield_report(performance_data, from_date, to_date):
-    """Generate CSV yield performance report"""
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = f'attachment; filename="yield_performance_{from_date}_{to_date}.csv"'
-    
-    writer = csv.writer(response)
-    writer.writerow([
-        'Farm', 'Field', 'Crop', 'Expected Yield (tons)', 'Actual Yield (tons)', 
-        'Performance (%)', 'Harvest Date'
-    ])
-    
-    for data in performance_data:
-        writer.writerow([
-            data['farm'],
-            data['field'],
-            data['crop'],
-            data['expected_yield'],
-            data['actual_yield'],
-            round(data['performance_percentage'], 2),
-            data['harvest_date'].strftime('%Y-%m-%d')
-        ])
-    
-    return response
-
-
-def generate_inventory_status_report(from_date, to_date, export_format):
-    """Generate inventory status report"""
-    inventory_items = Inventory.objects.filter(
-        date_stored__range=[from_date, to_date]
-    ).select_related('crop', 'managed_by')
-    
-    if export_format == 'csv':
-        return generate_csv_inventory_report(inventory_items, from_date, to_date)
-    
-    return JsonResponse({'success': True, 'message': 'Report generated successfully'})
-
-
-def generate_csv_inventory_report(inventory_items, from_date, to_date):
-    """Generate CSV inventory status report"""
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = f'attachment; filename="inventory_status_{from_date}_{to_date}.csv"'
-    
-    writer = csv.writer(response)
-    writer.writerow([
-        'Crop', 'Quantity (tons)', 'Storage Location', 'Storage Condition', 
-        'Quality Grade', 'Date Stored', 'Expiry Date', 'Days in Storage', 
-        'Unit Price', 'Total Value', 'Status'
-    ])
-    
-    for item in inventory_items:
-        status = []
-        if hasattr(item, 'is_reserved') and item.is_reserved:
-            status.append('Reserved')
-        if hasattr(item, 'is_expired') and item.is_expired:
-            status.append('Expired')
-        elif hasattr(item, 'expiry_date') and item.expiry_date and item.expiry_date < date.today():
-            status.append('Expired')
-        if hasattr(item, 'is_low_stock') and item.is_low_stock:
-            status.append('Low Stock')
-        elif item.quantity_tons < 10:
-            status.append('Low Stock')
-        if not status:
-            status.append('Good')
-            
-        days_in_storage = (date.today() - item.date_stored).days if item.date_stored else 0
-            
-        writer.writerow([
-            item.crop.name,
-            item.quantity_tons,
-            item.storage_location,
-            getattr(item, 'storage_condition', 'N/A'),
-            item.quality_grade,
-            item.date_stored.strftime('%Y-%m-%d'),
-            item.expiry_date.strftime('%Y-%m-%d') if item.expiry_date else 'N/A',
-            days_in_storage,
-            getattr(item, 'unit_price', 'N/A') or 'N/A',
-            getattr(item, 'total_value', 'N/A') or 'N/A',
-            ', '.join(status)
-        ])
-    
-    return response
-
-
-def generate_farm_productivity_report(from_date, to_date, export_format):
-    """Generate farm productivity analysis report"""
-    farms = Farm.objects.all()
-    
-    productivity_data = []
-    for farm in farms:
-        total_harvested = farm.field_set.filter(
-            harvestrecord__harvest_date__range=[from_date, to_date]
-        ).aggregate(total=Sum('harvestrecord__quantity_tons'))['total'] or Decimal('0')
-        
-        efficiency = getattr(farm, 'efficiency_percentage', 0) or 0
-        total_fields = farm.field_set.count()
-        active_fields = farm.field_set.filter(is_active=True).count()
-        primary_crop = getattr(farm, 'primary_crop', 'Mixed') or 'Mixed'
-        
-        productivity_data.append({
-            'farm_name': farm.name,
-            'location': farm.location,
-            'total_area': farm.total_area_hectares,
-            'total_harvested': total_harvested,
-            'efficiency_percentage': efficiency,
-            'total_fields': total_fields,
-            'active_fields': active_fields,
-            'primary_crop': primary_crop
-        })
-    
-    if export_format == 'csv':
-        return generate_csv_productivity_report(productivity_data, from_date, to_date)
-    
-    return JsonResponse({'success': True, 'message': 'Report generated successfully'})
-
-
-def generate_csv_productivity_report(productivity_data, from_date, to_date):
-    """Generate CSV productivity report"""
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = f'attachment; filename="farm_productivity_{from_date}_{to_date}.csv"'
-    
-    writer = csv.writer(response)
-    writer.writerow([
-        'Farm Name', 'Location', 'Total Area (hectares)', 'Total Harvested (tons)',
-        'Efficiency (%)', 'Total Fields', 'Active Fields', 'Primary Crop'
-    ])
-    
-    for data in productivity_data:
-        writer.writerow([
-            data['farm_name'],
-            data['location'],
-            data['total_area'],
-            data['total_harvested'],
-            round(data['efficiency_percentage'], 2),
-            data['total_fields'],
-            data['active_fields'],
-            data['primary_crop']
-        ])
-    
-    return response
-
-
-# ========================
-# NOTIFICATIONS AND MISCELLANEOUS VIEWS
-# ========================
-
-@login_required
-@admin_added_required
-def notifications(request):
-    """Notifications view - show system notifications"""
-    # Get fields that need attention (harvest dates approaching)
-    upcoming_harvests = Field.objects.filter(
-        expected_harvest_date__lte=datetime.now().date() + timedelta(days=7),
-        expected_harvest_date__gte=datetime.now().date()
-    ).select_related('farm', 'crop')
-    
-    # Get low inventory alerts
-    low_inventory = Inventory.objects.filter(
-        quantity_tons__lt=100  # Alert when inventory is below 100 tons
-    ).select_related('crop')
-    
-    context = {
-        'upcoming_harvests': upcoming_harvests,
-        'low_inventory': low_inventory,
-        'notification_count': upcoming_harvests.count() + low_inventory.count()
-    }
-    
-    return render(request, 'monitoring/notifications.html', context)
-
-
-# ========================
-# API ENDPOINTS
-# ========================
-
-@login_required
-@role_required(['admin'])
-@csrf_exempt
-def api_user_toggle_status(request, user_id):
-    """Toggle user active status via API"""
-    if request.method == 'POST':
-        try:
-            user = get_object_or_404(User, id=user_id)
-            
-            if user.is_superuser and not request.user.is_superuser:
-                return JsonResponse({
-                    'success': False,
-                    'message': 'You cannot modify superuser accounts.'
-                })
-            
-            if user == request.user:
-                return JsonResponse({
-                    'success': False,
-                    'message': 'You cannot modify your own account status.'
-                })
-            
-            new_status = not user.userprofile.is_active
-            user.userprofile.is_active = new_status
-            user.userprofile.save()
-            user.is_active = new_status
-            user.save()
-            
-            return JsonResponse({
-                'success': True,
-                'message': f'User {user.username} has been {"activated" if new_status else "deactivated"}.',
-                'new_status': new_status
-            })
-            
-        except Exception as e:
-            return JsonResponse({
-                'success': False,
-                'message': f'Error: {str(e)}'
-            })
-    
-    return JsonResponse({'success': False, 'message': 'Invalid request method'})
-
-
+@permission_required('can_view_analytics')
 def get_yearly_trends(request, year):
-    """API endpoint to get seasonal trends for a specific year"""
+    """API endpoint to get seasonal trends for a specific year - accessible data only"""
     try:
+        user_profile = request.user.userprofile
+        accessible_harvests = user_profile.get_queryset_for_model('HarvestRecord')
+        
         trends_data = {}
         
         for crop_name, crop_key in [('corn', 'corn'), ('wheat', 'wheat'), ('soy', 'soybeans')]:
             monthly_data = []
             
             for month in range(1, 13):
-                total = HarvestRecord.objects.filter(
+                total = accessible_harvests.filter(
                     harvest_date__year=year,
                     harvest_date__month=month,
                     field__crop__name__icontains=crop_name
@@ -1961,7 +1806,8 @@ def get_yearly_trends(request, year):
         return JsonResponse({
             'success': True,
             'year': year,
-            'data': trends_data
+            'data': trends_data,
+            'accessible_data_only': True
         })
         
     except Exception as e:
@@ -1971,379 +1817,299 @@ def get_yearly_trends(request, year):
         }, status=500)
 
 
-def get_farm_efficiency(request, farm_id):
-    """API endpoint to get detailed efficiency data for a specific farm"""
-    try:
-        farm = Farm.objects.get(id=farm_id, is_active=True)
-        
-        fields_data = []
-        total_expected = 0
-        total_actual = 0
-        
-        for field in farm.field_set.all():
-            field_expected = float(field.area_hectares * (field.crop.expected_yield_per_hectare or 5))
-            field_actual = float(HarvestRecord.objects.filter(field=field).aggregate(
-                total=Sum('quantity_tons')
-            )['total'] or 0)
-            
-            field_efficiency = (field_actual / field_expected * 100) if field_expected > 0 else 0
-            
-            fields_data.append({
-                'name': field.name,
-                'crop': field.crop.name,
-                'area': float(field.area_hectares),
-                'expected': field_expected,
-                'actual': field_actual,
-                'efficiency': round(field_efficiency, 1)
-            })
-            
-            total_expected += field_expected
-            total_actual += field_actual
-        
-        farm_efficiency = (total_actual / total_expected * 100) if total_expected > 0 else 0
-        
-        return JsonResponse({
-            'success': True,
-            'farm': {
-                'id': farm.id,
-                'name': farm.name,
-                'location': farm.location,
-                'total_area': float(farm.total_area_hectares),
-                'efficiency': round(farm_efficiency, 1),
-                'total_expected': round(total_expected, 1),
-                'total_actual': round(total_actual, 1)
-            },
-            'fields': fields_data
-        })
-        
-    except Farm.DoesNotExist:
-        return JsonResponse({
-            'success': False,
-            'error': 'Farm not found'
-        }, status=404)
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
-
-
-def get_live_metrics(request):
-    """API endpoint for live dashboard metrics updates"""
-    try:
-        total_harvests = HarvestRecord.objects.count()
-        active_farms = Farm.objects.filter(is_active=True).count()
-        total_inventory = Inventory.objects.aggregate(
-            total=Sum('quantity_tons')
-        )['total'] or 0
-        
-        week_ago = datetime.now().date() - timedelta(days=7)
-        recent_harvests = HarvestRecord.objects.filter(
-            harvest_date__gte=week_ago
-        ).count()
-        
-        next_week = datetime.now().date() + timedelta(days=7)
-        upcoming_harvests = Field.objects.filter(
-            expected_harvest_date__gte=datetime.now().date(),
-            expected_harvest_date__lte=next_week,
-            is_active=True
-        ).count()
-        
-        return JsonResponse({
-            'success': True,
-            'metrics': {
-                'total_harvests': total_harvests,
-                'active_farms': active_farms,
-                'total_inventory': float(total_inventory),
-                'recent_harvests': recent_harvests,
-                'upcoming_harvests': upcoming_harvests
-            },
-            'timestamp': datetime.now().isoformat()
-        })
-        
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
-        
-        
-        
-        # Add these missing views to your monitoring/views.py file
+# ========================
+# ADDITIONAL CRUD VIEWS WITH ROLE-BASED ACCESS
+# ========================
 
 @login_required
-@admin_added_required
-def farm_list(request):
-    """List all farms with basic information"""
-    farms = Farm.objects.filter(is_active=True).select_related().order_by('name')
+@role_required(['admin', 'farm_manager'])
+def harvest_delete(request, pk):
+    """Delete harvest record - Admin and Farm Manager only"""
+    user_profile = request.user.userprofile
     
-    context = {
-        'farms': farms,
-        'total_farms': farms.count()
-    }
-    return render(request, 'monitoring/farm_list.html', context)
-
-
-@login_required
-@admin_added_required
-def farm_detail(request, farm_id):
-    """Detailed view of a specific farm"""
-    farm = get_object_or_404(Farm, id=farm_id)
-    
-    # Get farm fields
-    fields = farm.field_set.select_related('crop').all()
-    
-    # Get recent harvests for this farm
-    recent_harvests = HarvestRecord.objects.filter(
-        field__farm=farm
-    ).select_related('field', 'field__crop', 'harvested_by').order_by('-harvest_date')[:10]
-    
-    # Calculate farm statistics
-    total_harvested = HarvestRecord.objects.filter(
-        field__farm=farm
-    ).aggregate(total=Sum('quantity_tons'))['total'] or 0
-    
-    total_area = fields.aggregate(total=Sum('area_hectares'))['total'] or farm.total_area_hectares
-    
-    context = {
-        'farm': farm,
-        'fields': fields,
-        'recent_harvests': recent_harvests,
-        'total_harvested': total_harvested,
-        'total_area': total_area,
-        'field_count': fields.count()
-    }
-    return render(request, 'monitoring/farm_detail.html', context)
-
-
-@login_required
-@admin_added_required
-def field_list(request):
-    """List all fields"""
-    fields = Field.objects.select_related('farm', 'crop').filter(
-        is_active=True
-    ).order_by('farm__name', 'name')
-    
-    context = {
-        'fields': fields,
-        'total_fields': fields.count()
-    }
-    return render(request, 'monitoring/field_list.html', context)
-
-
-@login_required
-@admin_added_required
-def field_detail(request, field_id):
-    """Detailed view of a specific field"""
-    field = get_object_or_404(Field, id=field_id)
-    
-    # Get harvests for this field
-    harvests = HarvestRecord.objects.filter(
-        field=field
-    ).select_related('harvested_by').order_by('-harvest_date')
-    
-    # Calculate field statistics
-    total_harvested = harvests.aggregate(total=Sum('quantity_tons'))['total'] or 0
-    
-    context = {
-        'field': field,
-        'harvests': harvests,
-        'total_harvested': total_harvested,
-        'harvest_count': harvests.count()
-    }
-    return render(request, 'monitoring/field_detail.html', context)
-
-
-@login_required
-@admin_added_required
-def harvest_list(request):
-    """List all harvest records"""
-    harvests = HarvestRecord.objects.select_related(
-        'field__farm', 'field__crop', 'harvested_by'
-    ).order_by('-harvest_date')
-    
-    # Apply filters if provided
-    farm_filter = request.GET.get('farm')
-    crop_filter = request.GET.get('crop')
-    date_from = request.GET.get('date_from')
-    date_to = request.GET.get('date_to')
-    
-    if farm_filter:
-        harvests = harvests.filter(field__farm__id=farm_filter)
-    
-    if crop_filter:
-        harvests = harvests.filter(field__crop__id=crop_filter)
-    
-    if date_from:
-        try:
-            from_date = datetime.strptime(date_from, '%Y-%m-%d').date()
-            harvests = harvests.filter(harvest_date__gte=from_date)
-        except ValueError:
-            pass
-    
-    if date_to:
-        try:
-            to_date = datetime.strptime(date_to, '%Y-%m-%d').date()
-            harvests = harvests.filter(harvest_date__lte=to_date)
-        except ValueError:
-            pass
-    
-    # Pagination
-    paginator = Paginator(harvests, 25)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    
-    # Get filter options
-    farms = Farm.objects.filter(is_active=True).order_by('name')
-    crops = Crop.objects.all().order_by('name')
-    
-    context = {
-        'page_obj': page_obj,
-        'farms': farms,
-        'crops': crops,
-        'farm_filter': farm_filter,
-        'crop_filter': crop_filter,
-        'date_from': date_from,
-        'date_to': date_to,
-        'total_harvests': harvests.count()
-    }
-    return render(request, 'monitoring/harvest_list.html', context)
-
-
-@login_required
-@admin_added_required
-def harvest_detail(request, harvest_id):
-    """Detailed view of a specific harvest record"""
-    harvest = get_object_or_404(HarvestRecord, id=harvest_id)
-    
-    context = {
-        'harvest': harvest
-    }
-    return render(request, 'monitoring/harvest_detail.html', context)
-
-
-@login_required
-@role_required(['admin', 'manager'])
-def harvest_add(request):
-    """Add new harvest record"""
-    if request.method == 'POST':
-        # Handle form submission
-        field_id = request.POST.get('field')
-        quantity_tons = request.POST.get('quantity_tons')
-        harvest_date = request.POST.get('harvest_date')
-        quality_grade = request.POST.get('quality_grade', 'A')
-        
-        try:
-            field = Field.objects.get(id=field_id)
-            
-            harvest = HarvestRecord.objects.create(
-                field=field,
-                quantity_tons=Decimal(quantity_tons),
-                harvest_date=datetime.strptime(harvest_date, '%Y-%m-%d').date(),
-                quality_grade=quality_grade,
-                harvested_by=request.user
-            )
-            
-            messages.success(request, f'Harvest record created successfully: {quantity_tons} tons from {field.name}')
-            return redirect('monitoring:harvest_detail', harvest_id=harvest.id)
-            
-        except Exception as e:
-            messages.error(request, f'Error creating harvest record: {str(e)}')
-    
-    # Get available fields for the form
-    fields = Field.objects.filter(is_active=True).select_related('farm', 'crop').order_by('farm__name', 'name')
-    
-    context = {
-        'fields': fields,
-        'today': datetime.now().date()
-    }
-    return render(request, 'monitoring/harvest_add.html', context)
-
-
-@login_required
-@role_required(['admin'])
-def harvest_edit(request, harvest_id):
-    """Edit harvest record - Admin only"""
-    harvest = get_object_or_404(HarvestRecord, id=harvest_id)
+    # Get harvest record user can access
+    accessible_harvests = user_profile.get_queryset_for_model('HarvestRecord')
+    harvest = get_object_or_404(accessible_harvests, pk=pk)
     
     if request.method == 'POST':
         try:
-            harvest.quantity_tons = Decimal(request.POST.get('quantity_tons'))
-            harvest.harvest_date = datetime.strptime(request.POST.get('harvest_date'), '%Y-%m-%d').date()
-            harvest.quality_grade = request.POST.get('quality_grade')
+            field_name = harvest.field.name
+            farm_name = harvest.field.farm.name
+            quantity = harvest.quantity_tons
             
-            # Add notes about the edit
-            if hasattr(harvest, 'notes'):
-                harvest.notes += f"\n[{datetime.now().date()}] Edited by {request.user.get_full_name() or request.user.username}"
+            harvest.delete()
             
-            harvest.save()
-            
-            messages.success(request, 'Harvest record updated successfully.')
-            return redirect('monitoring:harvest_detail', harvest_id=harvest.id)
+            messages.success(request, f'Harvest record deleted: {quantity} tons from {field_name} ({farm_name})')
+            return redirect('monitoring:harvest_list')
             
         except Exception as e:
-            messages.error(request, f'Error updating harvest record: {str(e)}')
+            messages.error(request, f'Error deleting harvest record: {str(e)}')
+            return redirect('monitoring:harvest_detail', pk=pk)
     
     context = {
-        'harvest': harvest
+        'harvest': harvest,
+        'confirm_delete': True
     }
-    return render(request, 'monitoring/harvest_edit.html', context)
+    return render(request, 'monitoring/harvest_confirm_delete.html', context)
 
 
 @login_required
-@role_required(['admin'])
-@require_http_methods(["POST"])
-def harvest_delete(request, harvest_id):
-    """Delete harvest record - Admin only"""
-    harvest = get_object_or_404(HarvestRecord, id=harvest_id)
-    
-    try:
-        field_name = harvest.field.name
-        farm_name = harvest.field.farm.name
-        quantity = harvest.quantity_tons
-        
-        harvest.delete()
-        
-        messages.success(request, f'Harvest record deleted: {quantity} tons from {field_name} ({farm_name})')
-        return redirect('monitoring:harvest_list')
-        
-    except Exception as e:
-        messages.error(request, f'Error deleting harvest record: {str(e)}')
-        return redirect('monitoring:harvest_detail', harvest_id=harvest_id)
-
-
-@login_required
-@admin_added_required
 def crop_list(request):
-    """List all crops"""
-    crops = Crop.objects.all().order_by('name')
+    """List all crops - all authenticated users can view"""
+    user_profile = request.user.userprofile
     
-    # Add statistics for each crop
+    # Get crops from fields user can access
+    accessible_fields = user_profile.get_queryset_for_model('Field')
+    crops = Crop.objects.filter(
+        field__in=accessible_fields
+    ).distinct().order_by('name')
+    
+    # Add statistics for each crop based on accessible data
     for crop in crops:
-        crop.field_count = Field.objects.filter(crop=crop).count()
-        crop.total_harvested = HarvestRecord.objects.filter(
+        crop.field_count = accessible_fields.filter(crop=crop).count()
+        crop.total_harvested = user_profile.get_queryset_for_model('HarvestRecord').filter(
             field__crop=crop
         ).aggregate(total=Sum('quantity_tons'))['total'] or 0
     
     context = {
         'crops': crops,
-        'total_crops': crops.count()
+        'total_crops': crops.count(),
+        'accessible_data_only': user_profile.role != 'admin'
     }
     return render(request, 'monitoring/crop_list.html', context)
 
 
 @login_required
-@admin_added_required
 def settings_view(request):
-    """Settings view for system configuration"""
-    context = {
-        'user': request.user,
-        'system_info': {
-            'version': '1.0.0',
-            'last_updated': datetime.now().strftime('%Y-%m-%d'),
+    """Settings view for system configuration - all authenticated users"""
+    user_profile = request.user.userprofile
+    
+    # Get user-specific statistics
+    user_stats = {
+        'accessible_farms': user_profile.get_queryset_for_model('Farm').count(),
+        'accessible_fields': user_profile.get_queryset_for_model('Field').count(),
+        'accessible_harvests': user_profile.get_queryset_for_model('HarvestRecord').count(),
+    }
+    
+    if user_profile.can_manage_inventory:
+        user_stats['accessible_inventory'] = user_profile.get_queryset_for_model('Inventory').count()
+    
+    system_stats = {}
+    if user_profile.role == 'admin':
+        system_stats = {
             'total_users': User.objects.count(),
             'total_farms': Farm.objects.count(),
             'total_harvests': HarvestRecord.objects.count(),
+            'total_inventory_items': Inventory.objects.count(),
+        }
+    
+    context = {
+        'user': request.user,
+        'user_profile': user_profile,
+        'user_stats': user_stats,
+        'system_stats': system_stats,
+        'system_info': {
+            'version': '1.0.0',
+            'last_updated': datetime.now().strftime('%Y-%m-%d'),
+        },
+        'can_manage_users': user_profile.can_manage_users,
+        'permissions': {
+            'can_manage_farms': user_profile.can_manage_farms,
+            'can_track_harvests': user_profile.can_track_harvests,
+            'can_manage_inventory': user_profile.can_manage_inventory,
+            'can_supervise_fields': user_profile.can_supervise_fields,
+            'can_view_analytics': user_profile.can_view_analytics,
+            'can_generate_reports': user_profile.can_generate_reports,
         }
     }
     return render(request, 'monitoring/settings.html', context)
+
+
+# ========================
+# PASSWORD RESET VIEWS
+# ========================
+
+def password_reset_request(request):
+    """Password reset request form - public access"""
+    if request.method == 'POST':
+        form = PasswordResetRequestForm(request.POST)
+        if form.is_valid():
+            email = form.cleaned_data['email']
+            reason = form.cleaned_data.get('reason', '')
+            
+            # In a real application, you would send an email to admins
+            # or create a password reset ticket in the system
+            
+            messages.success(
+                request,
+                'Password reset request submitted successfully. '
+                'An administrator will contact you soon to reset your password.'
+            )
+            return redirect('monitoring:login')
+        else:
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, f'{field.title()}: {error}')
+    else:
+        form = PasswordResetRequestForm()
+    
+    context = {
+        'form': form,
+        'title': 'Request Password Reset',
+    }
+    return render(request, 'monitoring/password_reset_request.html', context)
+
+
+@login_required
+@role_required(['admin'])
+def user_reset_password(request, user_id):
+    """Reset user password - Admin only"""
+    user = get_object_or_404(User, id=user_id)
+    
+    if request.method == 'POST':
+        new_password = request.POST.get('new_password')
+        confirm_password = request.POST.get('confirm_password')
+        
+        if not new_password or len(new_password) < 8:
+            messages.error(request, 'Password must be at least 8 characters long.')
+        elif new_password != confirm_password:
+            messages.error(request, 'Passwords do not match.')
+        else:
+            try:
+                user.set_password(new_password)
+                user.save()
+                messages.success(
+                    request, 
+                    f'Password for user {user.username} has been reset successfully.'
+                )
+                return redirect('monitoring:user_management')
+            except Exception as e:
+                messages.error(request, f'Error resetting password: {str(e)}')
+    
+    context = {
+        'user': user,
+        'title': f'Reset Password for: {user.username}',
+    }
+    return render(request, 'monitoring/user_reset_password.html', context)
+
+
+# ========================
+# ROLE-SPECIFIC UTILITY VIEWS
+# ========================
+
+@login_required
+def get_accessible_resources(request):
+    """API endpoint to get resources accessible to current user"""
+    user_profile = request.user.userprofile
+    
+    resources = {
+        'farms': {
+            'count': user_profile.get_queryset_for_model('Farm').count(),
+            'can_manage': user_profile.can_manage_farms
+        },
+        'fields': {
+            'count': user_profile.get_queryset_for_model('Field').count(),
+            'can_supervise': user_profile.can_supervise_fields
+        },
+        'harvests': {
+            'count': user_profile.get_queryset_for_model('HarvestRecord').count(),
+            'can_track': user_profile.can_track_harvests
+        }
+    }
+    
+    if user_profile.can_manage_inventory:
+        resources['inventory'] = {
+            'count': user_profile.get_queryset_for_model('Inventory').count(),
+            'can_manage': True
+        }
+    
+    return JsonResponse({
+        'success': True,
+        'user_role': user_profile.get_role_display(),
+        'resources': resources,
+        'permissions': {
+            'can_manage_farms': user_profile.can_manage_farms,
+            'can_track_harvests': user_profile.can_track_harvests,
+            'can_manage_inventory': user_profile.can_manage_inventory,
+            'can_supervise_fields': user_profile.can_supervise_fields,
+            'can_view_analytics': user_profile.can_view_analytics,
+            'can_generate_reports': user_profile.can_generate_reports,
+            'can_manage_users': user_profile.can_manage_users,
+        }
+    })
+
+
+@login_required
+@permission_required('can_track_harvests')
+def get_harvest_suggestions(request):
+    """API endpoint to get harvest suggestions for user's accessible fields"""
+    user_profile = request.user.userprofile
+    
+    # Get fields ready for harvest
+    ready_fields = user_profile.get_queryset_for_model('Field').filter(
+        expected_harvest_date__lte=datetime.now().date() + timedelta(days=7),
+        is_active=True
+    ).select_related('farm', 'crop')
+    
+    suggestions = []
+    for field in ready_fields:
+        days_until_harvest = (field.expected_harvest_date - datetime.now().date()).days
+        urgency = 'high' if days_until_harvest <= 3 else 'medium'
+        
+        # Estimate expected quantity
+        expected_quantity = field.area_hectares * (field.crop.expected_yield_per_hectare or 5)
+        
+        suggestions.append({
+            'field_id': field.id,
+            'farm_name': field.farm.name,
+            'field_name': field.name,
+            'crop_name': field.crop.name,
+            'expected_harvest_date': field.expected_harvest_date.strftime('%Y-%m-%d'),
+            'days_until_harvest': days_until_harvest,
+            'urgency': urgency,
+            'expected_quantity': float(expected_quantity),
+            'area_hectares': float(field.area_hectares)
+        })
+    
+    # Sort by urgency and date
+    suggestions.sort(key=lambda x: (x['days_until_harvest'], x['urgency']))
+    
+    return JsonResponse({
+        'success': True,
+        'suggestions': suggestions,
+        'total_suggestions': len(suggestions)
+    })
+
+
+# ========================
+# ERROR HANDLING VIEWS
+# ========================
+
+def permission_denied_view(request, exception=None):
+    """Custom permission denied view"""
+    context = {
+        'error_message': 'You do not have permission to access this resource.',
+        'user_role': getattr(request.user.userprofile, 'get_role_display', lambda: 'Unknown')() if hasattr(request.user, 'userprofile') else 'Unknown'
+    }
+    return render(request, 'monitoring/permission_denied.html', context, status=403)
+
+
+def not_found_view(request, exception=None):
+    """Custom 404 view"""
+    context = {
+        'error_message': 'The requested resource was not found or you do not have access to it.'
+    }
+    return render(request, 'monitoring/not_found.html', context, status=404)
+
+
+
+def user_activate(request, user_id):
+    user = get_object_or_404(User, id=user_id)
+    user.is_active = True
+    user.save()
+    return redirect('user_list')
+
+def user_delete(request, user_id):
+    user = get_object_or_404(User, id=user_id)
+    user.delete()
+    return redirect('user_list')
