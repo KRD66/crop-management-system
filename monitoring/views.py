@@ -19,6 +19,7 @@ import json
 import csv
 import random
 from io import BytesIO
+from .forms import UserAddForm
 
 # ReportLab imports for PDF generation
 from reportlab.pdfgen import canvas
@@ -2347,3 +2348,25 @@ def settings_view(request):
         }
     }
     return render(request, 'monitoring/settings.html', context)
+
+
+
+def user_add(request):
+    if request.method == "POST":
+        form = UserAddForm(request.POST)
+        if form.is_valid():
+            user = form.save(commit=False)
+            user.set_password(form.cleaned_data['password'])  # hash password
+            user.save()
+
+            # Create UserProfile with selected role
+            UserProfile.objects.create(
+                user=user,
+                role=form.cleaned_data['role'],
+                is_active=True
+            )
+            return redirect('monitoring:user_management')  # back to management page
+    else:
+        form = UserAddForm()
+    
+    return render(request, 'monitoring/user_add.html', {'form': form})
