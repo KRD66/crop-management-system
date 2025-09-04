@@ -453,6 +453,11 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (hasErrors) {
             e.preventDefault();
+            showToast('Please fill in all required fields', 'error');
+        } else {
+            // Show success message before form submission
+            const userName = document.getElementById('id_first_name').value || document.getElementById('id_username').value;
+            showToast(`Creating user "${userName}"...`, 'info');
         }
     });
     

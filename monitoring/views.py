@@ -235,7 +235,7 @@ def dashboard(request):
 # ========================
 # USER MANAGEMENT VIEWS
 # ========================
-
+@role_required(['admin'])
 @login_required
 def user_management(request):
     """User management view - Admin only"""
@@ -458,7 +458,6 @@ def user_reset_password(request, user_id):
         'title': f'Reset Password for: {user.username}',
     }
     return render(request, 'monitoring/user_reset_password.html', context)
-
 
 @login_required
 @admin_added_required
@@ -2070,267 +2069,8 @@ def get_live_metrics(request):
         
         
         
-        # Add these missing views to your monitoring/views.py file
-
-@login_required
-@admin_added_required
-def farm_list(request):
-    """List all farms with basic information"""
-    farms = Farm.objects.filter(is_active=True).select_related().order_by('name')
-    
-    context = {
-        'farms': farms,
-        'total_farms': farms.count()
-    }
-    return render(request, 'monitoring/farm_list.html', context)
 
 
-@login_required
-@admin_added_required
-def farm_detail(request, farm_id):
-    """Detailed view of a specific farm"""
-    farm = get_object_or_404(Farm, id=farm_id)
-    
-    # Get farm fields
-    fields = farm.field_set.select_related('crop').all()
-    
-    # Get recent harvests for this farm
-    recent_harvests = HarvestRecord.objects.filter(
-        field__farm=farm
-    ).select_related('field', 'field__crop', 'harvested_by').order_by('-harvest_date')[:10]
-    
-    # Calculate farm statistics
-    total_harvested = HarvestRecord.objects.filter(
-        field__farm=farm
-    ).aggregate(total=Sum('quantity_tons'))['total'] or 0
-    
-    total_area = fields.aggregate(total=Sum('area_hectares'))['total'] or farm.total_area_hectares
-    
-    context = {
-        'farm': farm,
-        'fields': fields,
-        'recent_harvests': recent_harvests,
-        'total_harvested': total_harvested,
-        'total_area': total_area,
-        'field_count': fields.count()
-    }
-    return render(request, 'monitoring/farm_detail.html', context)
-
-
-@login_required
-@admin_added_required
-def field_list(request):
-    """List all fields"""
-    fields = Field.objects.select_related('farm', 'crop').filter(
-        is_active=True
-    ).order_by('farm__name', 'name')
-    
-    context = {
-        'fields': fields,
-        'total_fields': fields.count()
-    }
-    return render(request, 'monitoring/field_list.html', context)
-
-
-@login_required
-@admin_added_required
-def field_detail(request, field_id):
-    """Detailed view of a specific field"""
-    field = get_object_or_404(Field, id=field_id)
-    
-    # Get harvests for this field
-    harvests = HarvestRecord.objects.filter(
-        field=field
-    ).select_related('harvested_by').order_by('-harvest_date')
-    
-    # Calculate field statistics
-    total_harvested = harvests.aggregate(total=Sum('quantity_tons'))['total'] or 0
-    
-    context = {
-        'field': field,
-        'harvests': harvests,
-        'total_harvested': total_harvested,
-        'harvest_count': harvests.count()
-    }
-    return render(request, 'monitoring/field_detail.html', context)
-
-
-@login_required
-@admin_added_required
-def harvest_list(request):
-    """List all harvest records"""
-    harvests = HarvestRecord.objects.select_related(
-        'field__farm', 'field__crop', 'harvested_by'
-    ).order_by('-harvest_date')
-    
-    # Apply filters if provided
-    farm_filter = request.GET.get('farm')
-    crop_filter = request.GET.get('crop')
-    date_from = request.GET.get('date_from')
-    date_to = request.GET.get('date_to')
-    
-    if farm_filter:
-        harvests = harvests.filter(field__farm__id=farm_filter)
-    
-    if crop_filter:
-        harvests = harvests.filter(field__crop__id=crop_filter)
-    
-    if date_from:
-        try:
-            from_date = datetime.strptime(date_from, '%Y-%m-%d').date()
-            harvests = harvests.filter(harvest_date__gte=from_date)
-        except ValueError:
-            pass
-    
-    if date_to:
-        try:
-            to_date = datetime.strptime(date_to, '%Y-%m-%d').date()
-            harvests = harvests.filter(harvest_date__lte=to_date)
-        except ValueError:
-            pass
-    
-    # Pagination
-    paginator = Paginator(harvests, 25)
-    page_number = request.GET.get('page')
-    page_obj = paginator.get_page(page_number)
-    
-    # Get filter options
-    farms = Farm.objects.filter(is_active=True).order_by('name')
-    crops = Crop.objects.all().order_by('name')
-    
-    context = {
-        'page_obj': page_obj,
-        'farms': farms,
-        'crops': crops,
-        'farm_filter': farm_filter,
-        'crop_filter': crop_filter,
-        'date_from': date_from,
-        'date_to': date_to,
-        'total_harvests': harvests.count()
-    }
-    return render(request, 'monitoring/harvest_list.html', context)
-
-
-@login_required
-@admin_added_required
-def harvest_detail(request, harvest_id):
-    """Detailed view of a specific harvest record"""
-    harvest = get_object_or_404(HarvestRecord, id=harvest_id)
-    
-    context = {
-        'harvest': harvest
-    }
-    return render(request, 'monitoring/harvest_detail.html', context)
-
-
-@login_required
-@role_required(['admin', 'manager'])
-def harvest_add(request):
-    """Add new harvest record"""
-    if request.method == 'POST':
-        # Handle form submission
-        field_id = request.POST.get('field')
-        quantity_tons = request.POST.get('quantity_tons')
-        harvest_date = request.POST.get('harvest_date')
-        quality_grade = request.POST.get('quality_grade', 'A')
-        
-        try:
-            field = Field.objects.get(id=field_id)
-            
-            harvest = HarvestRecord.objects.create(
-                field=field,
-                quantity_tons=Decimal(quantity_tons),
-                harvest_date=datetime.strptime(harvest_date, '%Y-%m-%d').date(),
-                quality_grade=quality_grade,
-                harvested_by=request.user
-            )
-            
-            messages.success(request, f'Harvest record created successfully: {quantity_tons} tons from {field.name}')
-            return redirect('monitoring:harvest_detail', harvest_id=harvest.id)
-            
-        except Exception as e:
-            messages.error(request, f'Error creating harvest record: {str(e)}')
-    
-    # Get available fields for the form
-    fields = Field.objects.filter(is_active=True).select_related('farm', 'crop').order_by('farm__name', 'name')
-    
-    context = {
-        'fields': fields,
-        'today': datetime.now().date()
-    }
-    return render(request, 'monitoring/harvest_add.html', context)
-
-
-@login_required
-@role_required(['admin'])
-def harvest_edit(request, harvest_id):
-    """Edit harvest record - Admin only"""
-    harvest = get_object_or_404(HarvestRecord, id=harvest_id)
-    
-    if request.method == 'POST':
-        try:
-            harvest.quantity_tons = Decimal(request.POST.get('quantity_tons'))
-            harvest.harvest_date = datetime.strptime(request.POST.get('harvest_date'), '%Y-%m-%d').date()
-            harvest.quality_grade = request.POST.get('quality_grade')
-            
-            # Add notes about the edit
-            if hasattr(harvest, 'notes'):
-                harvest.notes += f"\n[{datetime.now().date()}] Edited by {request.user.get_full_name() or request.user.username}"
-            
-            harvest.save()
-            
-            messages.success(request, 'Harvest record updated successfully.')
-            return redirect('monitoring:harvest_detail', harvest_id=harvest.id)
-            
-        except Exception as e:
-            messages.error(request, f'Error updating harvest record: {str(e)}')
-    
-    context = {
-        'harvest': harvest
-    }
-    return render(request, 'monitoring/harvest_edit.html', context)
-
-
-@login_required
-@role_required(['admin'])
-@require_http_methods(["POST"])
-def harvest_delete(request, harvest_id):
-    """Delete harvest record - Admin only"""
-    harvest = get_object_or_404(HarvestRecord, id=harvest_id)
-    
-    try:
-        field_name = harvest.field.name
-        farm_name = harvest.field.farm.name
-        quantity = harvest.quantity_tons
-        
-        harvest.delete()
-        
-        messages.success(request, f'Harvest record deleted: {quantity} tons from {field_name} ({farm_name})')
-        return redirect('monitoring:harvest_list')
-        
-    except Exception as e:
-        messages.error(request, f'Error deleting harvest record: {str(e)}')
-        return redirect('monitoring:harvest_detail', harvest_id=harvest_id)
-
-
-@login_required
-@admin_added_required
-def crop_list(request):
-    """List all crops"""
-    crops = Crop.objects.all().order_by('name')
-    
-    # Add statistics for each crop
-    for crop in crops:
-        crop.field_count = Field.objects.filter(crop=crop).count()
-        crop.total_harvested = HarvestRecord.objects.filter(
-            field__crop=crop
-        ).aggregate(total=Sum('quantity_tons'))['total'] or 0
-    
-    context = {
-        'crops': crops,
-        'total_crops': crops.count()
-    }
-    return render(request, 'monitoring/crop_list.html', context)
 
 
 @login_required
@@ -2373,13 +2113,16 @@ def user_add(request):
                 # Handle farm access (you might want to store this in a separate model)
                 farm_access = form.cleaned_data.get('farm_access', [])
                 # You can store farm_access in the UserProfile model or create a separate FarmAccess model
-                # For now, we'll just add a success message
 
+                # Add success message for the redirect
+                user_display_name = user.get_full_name() or user.username
                 messages.success(
                     request, 
-                    f'User {user.get_full_name() or user.username} has been created successfully!'
+                    f'User "{user_display_name}" has been created successfully! Role: {user_profile.get_role_display()}'
                 )
-                return redirect('monitoring:user_management')
+                
+                # Redirect with a success flag in URL
+                return redirect(f"{reverse('monitoring:user_management')}?user_created=success")
                 
             except Exception as e:
                 messages.error(request, f'Error creating user: {str(e)}')

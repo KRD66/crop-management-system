@@ -10,7 +10,7 @@ from django.contrib.auth.models import User
 from .models import Inventory, Crop, HarvestRecord, UserProfile
 
 
-# -------------------- AUTHENTICATION & USER MANAGEMENT --------------------
+#  AUTHENTICATION & USER MANAGEMENT
 
 class CustomLoginForm(AuthenticationForm):
     """Custom login form that accepts email or username, with remember_me"""
@@ -66,7 +66,7 @@ class CustomLoginForm(AuthenticationForm):
 
 
 class AdminUserCreationForm(forms.ModelForm):
-    """Form for administrators to create new users"""
+    #Form for administrators to create new users
 
     first_name = forms.CharField(max_length=30, required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
     last_name = forms.CharField(max_length=30, required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
@@ -371,3 +371,5 @@ class UserAddForm(forms.ModelForm):
         if User.objects.filter(username=username).exists():
             raise forms.ValidationError("A user with this username already exists.")
         return username
+    
+    

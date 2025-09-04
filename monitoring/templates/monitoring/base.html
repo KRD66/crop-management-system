@@ -54,14 +54,83 @@
         </div>
         <nav>
             <ul class="nav-menu">
-                <li><a href="{% url 'monitoring:dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">📊 Dashboard</a></li>
-                <li><a href="{% url 'monitoring:farm_management' %}" class="{% if request.resolver_match.url_name == 'farm_management' %}active{% endif %}">🚜 Farm Management</a></li>
-                <li><a href="{% url 'monitoring:harvest_tracking' %}" class="{% if request.resolver_match.url_name == 'harvest_tracking' %}active{% endif %}">📋 Harvest Tracking</a></li>
-                <li><a href="{% url 'monitoring:analytics' %}" class="{% if request.resolver_match.url_name == 'analytics' %}active{% endif %}">📈 Analytics</a></li>
-                <li><a href="{% url 'monitoring:inventory' %}" class="{% if request.resolver_match.url_name == 'inventory' %}active{% endif %}">📦 Inventory</a></li>
-                <li><a href="{% url 'monitoring:reports' %}" class="{% if request.resolver_match.url_name == 'reports' %}active{% endif %}">📄 Reports</a></li>
-                <li><a href="{% url 'monitoring:notifications' %}" class="{% if request.resolver_match.url_name == 'notifications' %}active{% endif %}">🔔 Notifications</a></li>
-                <li><a href="{% url 'monitoring:user_management' %}" class="{% if request.resolver_match.url_name == 'user_management' %}active{% endif %}">👥 User Management</a></li>
+                <!-- Dashboard - Available to all authenticated users -->
+                <li>
+                    <a href="{% url 'monitoring:dashboard' %}" 
+                       class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
+                        📊 Dashboard
+                    </a>
+                </li>
+
+                <!-- Farm Management - Admin and Farm Manager only -->
+                {% if can_manage_farms %}
+                <li>
+                    <a href="{% url 'monitoring:farm_management' %}" 
+                       class="{% if request.resolver_match.url_name == 'farm_management' %}active{% endif %}">
+                        🚜 Farm Management
+                    </a>
+                </li>
+                {% endif %}
+
+                <!-- Harvest Tracking - Admin, Farm Manager, Field Supervisor, Field Worker -->
+                {% if can_track_harvests %}
+                <li>
+                    <a href="{% url 'monitoring:harvest_tracking' %}" 
+                       class="{% if request.resolver_match.url_name == 'harvest_tracking' %}active{% endif %}">
+                        📋 Harvest Tracking
+                    </a>
+                </li>
+                {% endif %}
+
+                <!-- Analytics - Admin, Farm Manager, Field Supervisor -->
+                {% if can_view_analytics %}
+                <li>
+                    <a href="{% url 'monitoring:analytics' %}" 
+                       class="{% if request.resolver_match.url_name == 'analytics' %}active{% endif %}">
+                        📈 Analytics
+                    </a>
+                </li>
+                {% endif %}
+
+                <!-- Inventory - Admin and Inventory Manager only -->
+                {% if can_manage_inventory %}
+                <li>
+                    <a href="{% url 'monitoring:inventory' %}" 
+                       class="{% if request.resolver_match.url_name == 'inventory' %}active{% endif %}">
+                        📦 Inventory
+                    </a>
+                </li>
+                {% endif %}
+
+                <!-- Reports - Admin, Farm Manager, Inventory Manager -->
+                {% if can_generate_reports %}
+                <li>
+                    <a href="{% url 'monitoring:reports' %}" 
+                       class="{% if request.resolver_match.url_name == 'reports' %}active{% endif %}">
+                        📄 Reports
+                    </a>
+                </li>
+                {% endif %}
+
+                <!-- Notifications - Available to all authenticated users -->
+                {% if can_view_notifications %}
+                <li>
+                    <a href="{% url 'monitoring:notifications' %}" 
+                       class="{% if request.resolver_match.url_name == 'notifications' %}active{% endif %}">
+                        🔔 Notifications
+                    </a>
+                </li>
+                {% endif %}
+
+                <!-- User Management - Admin only -->
+                {% if can_manage_users %}
+                <li>
+                    <a href="{% url 'monitoring:user_management' %}" 
+                       class="{% if request.resolver_match.url_name == 'user_management' %}active{% endif %}">
+                        👥 User Management
+                    </a>
+                </li>
+                {% endif %}
             </ul>
         </nav>
     </div>
@@ -87,7 +156,7 @@
                         <span class="user-name">
                             {% if user.is_authenticated %}
                                 {% if user.userprofile %}
-                                    {{ user.userprofile.get_role_display }}
+                                    {{ user.first_name|default:user.username }} - {{ user.userprofile.get_role_display }}
                                 {% else %}
                                     {{ user.first_name|default:user.username }}
                                 {% endif %}
@@ -97,7 +166,7 @@
                         </span>
                         <i class="fas fa-bell notification-bell" title="Notifications"></i>
 
-                        <!-- 🔽 Fixed logout: form + button -->
+                        <!-- Fixed logout: form + button -->
                         <form id="logoutForm" method="post" action="{% url 'monitoring:logout' %}" style="display:none;">
                             {% csrf_token %}
                         </form>

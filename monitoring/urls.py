@@ -1,7 +1,7 @@
 # monitoring/urls.py - URLs that match your existing views only
 from django.urls import path
 from . import views
-from .auth_views import CustomLoginView, CustomLogoutView, demo_login
+from .auth_views import CustomLoginView, CustomLogoutView
 
 app_name = 'monitoring'
 
@@ -9,7 +9,7 @@ urlpatterns = [
     # Authentication URLs
     path('login/', CustomLoginView.as_view(), name='login'),
     path('logout/', CustomLogoutView.as_view(), name='logout'),
-    path('demo-login/', demo_login, name='demo_login'),
+
     
     # Main Dashboard
     path('', views.dashboard, name='dashboard'),  # Added for root path

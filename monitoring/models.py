@@ -666,17 +666,3 @@ class Inventory(models.Model):
             raise ValidationError("Quantity cannot be negative.")
         
         
-        
-@receiver(post_save, sender=User)
-def create_user_profile(sender, instance, created, **kwargs):
-    """Automatically create UserProfile with default role when User is created"""
-    if created:
-        UserProfile.objects.create(user=instance, role='field_worker')
-
-@receiver(post_save, sender=User)
-def save_user_profile(sender, instance, **kwargs):
-    """Save UserProfile when User is saved"""
-    if hasattr(instance, 'userprofile'):
-        instance.userprofile.save()
-    else:
-        UserProfile.objects.create(user=instance, role='field_worker')        
