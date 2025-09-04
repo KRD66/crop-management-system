@@ -2,37 +2,471 @@
 
 {% block title %}Add User - HarvestPro{% endblock %}
 
+{% block header_content %}
+<h1>User Management</h1>
+<p>Create a new user account with appropriate permissions</p>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+    
+    .modal-content {
+        background: white;
+        border-radius: 12px;
+        padding: 0;
+        width: 90%;
+        max-width: 600px;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        position: relative;
+    }
+    
+    .modal-header {
+        padding: 24px 24px 0 24px;
+        border-bottom: 1px solid #e5e7eb;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+    }
+    
+    .modal-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #111827;
+        margin: 0;
+    }
+    
+    .modal-subtitle {
+        font-size: 0.875rem;
+        color: #6b7280;
+        margin: 4px 0 0 0;
+    }
+    
+    .close-btn {
+        background: none;
+        border: none;
+        color: #9ca3af;
+        font-size: 1.5rem;
+        cursor: pointer;
+        padding: 4px;
+        line-height: 1;
+        transition: color 0.2s;
+    }
+    
+    .close-btn:hover {
+        color: #374151;
+    }
+    
+    .modal-body {
+        padding: 0 24px 24px 24px;
+    }
+    
+    .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin-bottom: 24px;
+    }
+    
+    .form-group {
+        margin-bottom: 20px;
+    }
+    
+    .form-group.full-width {
+        grid-column: 1 / -1;
+    }
+    
+    .form-label {
+        display: block;
+        font-weight: 500;
+        color: #374151;
+        margin-bottom: 6px;
+        font-size: 0.875rem;
+    }
+    
+    .form-control {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 0.875rem;
+        transition: border-color 0.2s, box-shadow 0.2s;
+        box-sizing: border-box;
+    }
+    
+    .form-control:focus {
+        outline: none;
+        border-color: #16a34a;
+        box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.1);
+    }
+    
+    .form-select {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 0.875rem;
+        background-color: white;
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+        background-position: right 8px center;
+        background-repeat: no-repeat;
+        background-size: 16px;
+        padding-right: 40px;
+        cursor: pointer;
+        transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    
+    .form-select:focus {
+        outline: none;
+        border-color: #16a34a;
+        box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.1);
+    }
+    
+    .checkbox-section {
+        margin: 24px 0;
+    }
+    
+    .section-title {
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: 16px;
+        font-size: 0.875rem;
+    }
+    
+    .checkbox-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+    
+    .checkbox-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .checkbox-item input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        accent-color: #16a34a;
+        cursor: pointer;
+    }
+    
+    .checkbox-item label {
+        font-size: 0.875rem;
+        color: #374151;
+        cursor: pointer;
+        margin: 0;
+    }
+    
+    .modal-footer {
+        padding: 16px 24px;
+        border-top: 1px solid #e5e7eb;
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+        background-color: #f9fafb;
+        border-radius: 0 0 12px 12px;
+    }
+    
+    .btn {
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        border: none;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .btn-secondary {
+        background-color: #f3f4f6;
+        color: #374151;
+        border: 1px solid #d1d5db;
+    }
+    
+    .btn-secondary:hover {
+        background-color: #e5e7eb;
+    }
+    
+    .btn-primary {
+        background-color: #16a34a;
+        color: white;
+    }
+    
+    .btn-primary:hover {
+        background-color: #15803d;
+    }
+    
+    .error-message {
+        color: #dc2626;
+        font-size: 0.75rem;
+        margin-top: 4px;
+        display: block;
+    }
+    
+    .form-control.error {
+        border-color: #dc2626;
+    }
+    
+    @media (max-width: 640px) {
+        .form-grid {
+            grid-template-columns: 1fr;
+            gap: 16px;
+        }
+        
+        .checkbox-grid {
+            grid-template-columns: 1fr;
+        }
+        
+        .modal-content {
+            width: 95%;
+            margin: 20px;
+        }
+        
+        .modal-footer {
+            flex-direction: column-reverse;
+        }
+        
+        .btn {
+            width: 100%;
+        }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="container mt-4">
-    <h2>Add New User</h2>
-    <form method="POST">
-        {% csrf_token %}
-        <div class="form-group">
-            <label>Username</label>
-            {{ form.username }}
+<div class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div>
+                <h2 class="modal-title">Add New User</h2>
+                <p class="modal-subtitle">Create a new user account with appropriate permissions</p>
+            </div>
+            <a href="{% url 'monitoring:user_management' %}" class="close-btn">&times;</a>
         </div>
-        <div class="form-group">
-            <label>Email</label>
-            {{ form.email }}
-        </div>
-        <div class="form-group">
-            <label>First Name</label>
-            {{ form.first_name }}
-        </div>
-        <div class="form-group">
-            <label>Last Name</label>
-            {{ form.last_name }}
-        </div>
-        <div class="form-group">
-            <label>Password</label>
-            {{ form.password }}
-        </div>
-        <div class="form-group">
-            <label>Role</label>
-            {{ form.role }}
-        </div>
-        <button type="submit" class="btn btn-success">Save User</button>
-        <a href="{% url 'monitoring:user_management' %}" class="btn btn-secondary">Cancel</a>
-    </form>
+        
+        <form method="POST" id="addUserForm">
+            {% csrf_token %}
+            <div class="modal-body">
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label" for="id_first_name">Full Name</label>
+                        <input type="text" 
+                               class="form-control {% if form.first_name.errors %}error{% endif %}" 
+                               name="first_name" 
+                               id="id_first_name"
+                               placeholder="John Doe"
+                               value="{{ form.first_name.value|default:'' }}">
+                        {% if form.first_name.errors %}
+                            {% for error in form.first_name.errors %}
+                                <span class="error-message">{{ error }}</span>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="id_email">Email Address</label>
+                        <input type="email" 
+                               class="form-control {% if form.email.errors %}error{% endif %}" 
+                               name="email" 
+                               id="id_email"
+                               placeholder="john.doe@farm.com"
+                               value="{{ form.email.value|default:'' }}">
+                        {% if form.email.errors %}
+                            {% for error in form.email.errors %}
+                                <span class="error-message">{{ error }}</span>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="id_username">Username</label>
+                        <input type="text" 
+                               class="form-control {% if form.username.errors %}error{% endif %}" 
+                               name="username" 
+                               id="id_username"
+                               placeholder="johndoe"
+                               value="{{ form.username.value|default:'' }}">
+                        {% if form.username.errors %}
+                            {% for error in form.username.errors %}
+                                <span class="error-message">{{ error }}</span>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="id_last_name">Last Name</label>
+                        <input type="text" 
+                               class="form-control {% if form.last_name.errors %}error{% endif %}" 
+                               name="last_name" 
+                               id="id_last_name"
+                               placeholder="Doe"
+                               value="{{ form.last_name.value|default:'' }}">
+                        {% if form.last_name.errors %}
+                            {% for error in form.last_name.errors %}
+                                <span class="error-message">{{ error }}</span>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="id_role">Role</label>
+                        <select class="form-select {% if form.role.errors %}error{% endif %}" 
+                                name="role" 
+                                id="id_role">
+                            <option value="">Select role</option>
+                            {% for value, label in form.role.field.choices %}
+                                <option value="{{ value }}" {% if form.role.value == value %}selected{% endif %}>
+                                    {{ label }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                        {% if form.role.errors %}
+                            {% for error in form.role.errors %}
+                                <span class="error-message">{{ error }}</span>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label" for="id_status">Status</label>
+                        <select class="form-select" name="status" id="id_status">
+                            <option value="active" selected>Active</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group full-width">
+                        <label class="form-label" for="id_password">Password</label>
+                        <input type="password" 
+                               class="form-control {% if form.password.errors %}error{% endif %}" 
+                               name="password" 
+                               id="id_password"
+                               placeholder="Enter secure password">
+                        {% if form.password.errors %}
+                            {% for error in form.password.errors %}
+                                <span class="error-message">{{ error }}</span>
+                            {% endfor %}
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="checkbox-section">
+                    <div class="section-title">Farm Access</div>
+                    <div class="checkbox-grid">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="north_field" name="farm_access" value="north_field">
+                            <label for="north_field">North Field</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="south_field" name="farm_access" value="south_field">
+                            <label for="south_field">South Field</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="east_field" name="farm_access" value="east_field">
+                            <label for="east_field">East Field</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="west_field" name="farm_access" value="west_field">
+                            <label for="west_field">West Field</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="central_field" name="farm_access" value="central_field">
+                            <label for="central_field">Central Field</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <a href="{% url 'monitoring:user_management' %}" class="btn btn-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary">Add User</button>
+            </div>
+        </form>
+    </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Close modal when clicking outside
+    const modalOverlay = document.querySelector('.modal-overlay');
+    const modalContent = document.querySelector('.modal-content');
+    
+    modalOverlay.addEventListener('click', function(e) {
+        if (e.target === modalOverlay) {
+            window.location.href = "{% url 'monitoring:user_management' %}";
+        }
+    });
+    
+    // Prevent modal from closing when clicking inside content
+    modalContent.addEventListener('click', function(e) {
+        e.stopPropagation();
+    });
+    
+    // Form validation
+    const form = document.getElementById('addUserForm');
+    form.addEventListener('submit', function(e) {
+        const requiredFields = ['first_name', 'email', 'username', 'password', 'role'];
+        let hasErrors = false;
+        
+        requiredFields.forEach(function(fieldName) {
+            const field = document.getElementById('id_' + fieldName);
+            const errorSpan = field.parentNode.querySelector('.error-message');
+            
+            if (!field.value.trim()) {
+                field.classList.add('error');
+                if (!errorSpan) {
+                    const error = document.createElement('span');
+                    error.className = 'error-message';
+                    error.textContent = 'This field is required.';
+                    field.parentNode.appendChild(error);
+                }
+                hasErrors = true;
+            } else {
+                field.classList.remove('error');
+                if (errorSpan && !errorSpan.textContent.includes('already exists')) {
+                    errorSpan.remove();
+                }
+            }
+        });
+        
+        if (hasErrors) {
+            e.preventDefault();
+        }
+    });
+    
+    // Remove error styling when user starts typing
+    const inputs = document.querySelectorAll('.form-control, .form-select');
+    inputs.forEach(function(input) {
+        input.addEventListener('input', function() {
+            this.classList.remove('error');
+            const errorSpan = this.parentNode.querySelector('.error-message');
+            if (errorSpan && !errorSpan.textContent.includes('already exists')) {
+                errorSpan.remove();
+            }
+        });
+    });
+});
+</script>
 {% endblock %}

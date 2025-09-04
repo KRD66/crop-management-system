@@ -304,10 +304,70 @@ class BulkInventoryUpdateForm(forms.Form):
 
 
 class UserAddForm(forms.ModelForm):
-    password = forms.CharField(widget=forms.PasswordInput)
+    password = forms.CharField(
+        widget=forms.PasswordInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Enter secure password'
+        })
+    )
+    role = forms.ChoiceField(
+        choices=UserProfile.ROLE_CHOICES,
+        widget=forms.Select(attrs={
+            'class': 'form-select'
+        })
+    )
+    status = forms.ChoiceField(
+        choices=[
+            ('active', 'Active'),
+            ('inactive', 'Inactive'),
+        ],
+        initial='active',
+        widget=forms.Select(attrs={
+            'class': 'form-select'
+        })
+    )
+    farm_access = forms.MultipleChoiceField(
+        choices=[
+            ('north_field', 'North Field'),
+            ('south_field', 'South Field'),
+            ('east_field', 'East Field'),
+            ('west_field', 'West Field'),
+            ('central_field', 'Central Field'),
+        ],
+        widget=forms.CheckboxSelectMultiple,
+        required=False
+    )
 
     class Meta:
         model = User
         fields = ['username', 'email', 'first_name', 'last_name', 'password']
+        widgets = {
+            'username': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'johndoe'
+            }),
+            'email': forms.EmailInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'john.doe@farm.com'
+            }),
+            'first_name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'John Doe'
+            }),
+            'last_name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Doe'
+            }),
+        }
 
-    role = forms.ChoiceField(choices=UserProfile.ROLE_CHOICES)
+    def clean_email(self):
+        email = self.cleaned_data.get('email')
+        if User.objects.filter(email=email).exists():
+            raise forms.ValidationError("A user with this email already exists.")
+        return email
+
+    def clean_username(self):
+        username = self.cleaned_data.get('username')
+        if User.objects.filter(username=username).exists():
+            raise forms.ValidationError("A user with this username already exists.")
+        return username
