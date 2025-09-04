@@ -2351,21 +2351,39 @@ def settings_view(request):
 
 
 
+
 def user_add(request):
     if request.method == "POST":
         form = UserAddForm(request.POST)
         if form.is_valid():
-            user = form.save(commit=False)
-            user.set_password(form.cleaned_data['password'])  # hash password
-            user.save()
+            try:
+                # Create the user
+                user = form.save(commit=False)
+                user.set_password(form.cleaned_data['password'])
+                user.save()
 
-            # Create UserProfile with selected role
-            UserProfile.objects.create(
-                user=user,
-                role=form.cleaned_data['role'],
-                is_active=True
-            )
-            return redirect('monitoring:user_management')  # back to management page
+                # Create UserProfile with selected role
+                is_active = form.cleaned_data['status'] == 'active'
+                user_profile = UserProfile.objects.create(
+                    user=user,
+                    role=form.cleaned_data['role'],
+                    is_active=is_active
+                )
+
+                # Handle farm access (you might want to store this in a separate model)
+                farm_access = form.cleaned_data.get('farm_access', [])
+                # You can store farm_access in the UserProfile model or create a separate FarmAccess model
+                # For now, we'll just add a success message
+
+                messages.success(
+                    request, 
+                    f'User {user.get_full_name() or user.username} has been created successfully!'
+                )
+                return redirect('monitoring:user_management')
+                
+            except Exception as e:
+                messages.error(request, f'Error creating user: {str(e)}')
+                
     else:
         form = UserAddForm()
     
