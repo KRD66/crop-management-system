@@ -6,6 +6,9 @@ from datetime import date, timedelta
 from django.db import models
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.contrib.auth.models import User
+from .models import Farm
+from decimal import Decimal
+ 
 
 from .models import Inventory, Crop, HarvestRecord, UserProfile
 
@@ -373,3 +376,59 @@ class UserAddForm(forms.ModelForm):
         return username
     
     
+    
+    
+   #---------add farm form-----
+class FarmForm(forms.ModelForm):
+    size_acres = forms.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        min_value=Decimal('0.01'),
+        required=True,
+        label="Size (acres)"
+    )
+    planting_date = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={'type': 'date'}),
+        label="Planting Date"
+    )
+    crop_types = forms.MultipleChoiceField(
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        choices=[
+            ('corn', 'Corn'),
+            ('wheat', 'Wheat'),
+            ('cocoa', 'Cocoa'),
+            ('rice', 'Rice'),
+            ('cassava', 'Cassava'),
+            ('okro', 'Okro'),
+        ],
+        label="Crop Types"
+    )
+
+    class Meta:
+        model = Farm
+        fields = [
+            'name',
+            'location',
+            'soil_type',
+            'notes',
+            'size_acres',
+            'planting_date',
+            'crop_types',
+        ]
+
+    def save(self, commit=True):
+        farm = super().save(commit=False)
+        # Convert acres → hectares before saving
+        farm.total_area_hectares = self.cleaned_data['size_acres'] / Decimal('2.47105')
+        farm.established_date = self.cleaned_data['planting_date']
+        
+        # TODO: handle crop_types (save in notes or another field if needed)
+        crops = self.cleaned_data.get('crop_types')
+        if crops:
+            farm.notes += f"\nCrops: {', '.join(crops)}"
+        
+        if commit:
+            farm.save()
+        return farm
