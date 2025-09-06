@@ -3,6 +3,7 @@ from django.urls import path
 from . import views
 from .auth_views import CustomLoginView, CustomLogoutView
 
+
 app_name = 'monitoring'
 
 urlpatterns = [
@@ -31,6 +32,10 @@ urlpatterns = [
     
     # Farm Management
     path('farms/', views.farm_management, name='farm_management'),
+    path('farms/add/', views.farm_add, name='farm_add'),
+    path('farms/<int:farm_id>/', views.farm_detail, name='farm_detail'),
+    path('farms/<int:farm_id>/edit/', views.farm_edit, name='farm_edit'),
+    path('farms/<int:farm_id>/delete/', views.farm_delete, name='farm_delete'),
     
     # Harvest Tracking
     path('harvests/', views.harvest_tracking, name='harvest_tracking'),

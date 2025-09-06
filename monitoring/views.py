@@ -19,7 +19,10 @@ import json
 import csv
 import random
 from io import BytesIO
-from .forms import UserAddForm
+from .forms import UserAddForm, FarmForm
+from django.db.models import Sum
+from .models import Farm, HarvestRecord
+
 
 # ReportLab imports for PDF generation
 from reportlab.pdfgen import canvas
@@ -288,36 +291,6 @@ def user_management(request):
     return render(request, 'monitoring/user_management.html', context)
 
 
-@login_required
-@role_required(['admin'])
-def user_add(request):
-    """Add new user - Admin only"""
-    if request.method == 'POST':
-        form = AdminUserCreationForm(request.POST)
-        if form.is_valid():
-            try:
-                user = form.save()
-                messages.success(
-                    request, 
-                    f'User {user.username} created successfully with role: {user.userprofile.get_role_display()}'
-                )
-                return redirect('monitoring:user_management')
-            except Exception as e:
-                messages.error(request, f'Error creating user: {str(e)}')
-        else:
-            for field, errors in form.errors.items():
-                for error in errors:
-                    messages.error(request, f'{field.title()}: {error}')
-    else:
-        form = AdminUserCreationForm()
-    
-    context = {
-        'form': form,
-        'title': 'Add New User',
-        'submit_text': 'Create User'
-    }
-    return render(request, 'monitoring/user_form.html', context)
-
 
 @login_required
 @role_required(['admin'])
@@ -531,10 +504,14 @@ def password_reset_request(request):
 # FARM MANAGEMENT VIEWS
 # ========================
 
+
 @login_required
-@admin_added_required
+@admin_added_required  # Keep your existing decorator
 def farm_management(request):
-    """Farm management view"""
+    """Farm management view - your existing comprehensive view"""
+    # Add form for the modal
+    form = FarmForm()
+    
     farms = Farm.objects.filter(is_active=True).prefetch_related('field_set__crop')
 
     total_farms = farms.count()
@@ -586,6 +563,7 @@ def farm_management(request):
 
     top_farms = sorted(farms_with_stats, key=lambda x: x.calculated_avg_yield, reverse=True)[:5]
 
+    # Location distribution
     location_distribution = []
     location_counts = defaultdict(int)
     for farm in farms:
@@ -598,6 +576,7 @@ def farm_management(request):
             'count': count
         })
 
+    # Size distribution
     size_distribution = []
     size_ranges = {
         '0-50 acres': 0,
@@ -625,6 +604,7 @@ def farm_management(request):
             })
 
     context = {
+        'form': form,  # Add the form for the modal
         'total_farms': total_farms,
         'active_farms': active_farms,
         'total_area': round(float(total_area), 1),
@@ -639,7 +619,158 @@ def farm_management(request):
 
     return render(request, 'monitoring/farm_management.html', context)
 
+@login_required
+@require_http_methods(["POST"])  # Only accept POST requests
+def farm_add(request):
+    """Handle adding a new farm via modal form submission"""
+    form = FarmForm(request.POST)
+    
+    if form.is_valid():
+        try:
+            farm = form.save(commit=False)
+            farm.manager = request.user
+            farm.is_active = True  # Set as active by default
+            farm.save()
+            
+            # Handle crop types from checkboxes if needed
+            crop_types = request.POST.getlist('crop_types')
+            if crop_types:
+                # Add crop types to notes or handle them as needed
+                if farm.notes:
+                    farm.notes += f"\nCrops: {', '.join(crop_types)}"
+                else:
+                    farm.notes = f"Crops: {', '.join(crop_types)}"
+                farm.save()
+            
+            messages.success(request, f"Farm '{farm.name}' added successfully!")
+            
+        except Exception as e:
+            messages.error(request, f"Error adding farm: {str(e)}")
+    else:
+        # Form has validation errors
+        for field, errors in form.errors.items():
+            for error in errors:
+                if field == '__all__':
+                    messages.error(request, f"Error: {error}")
+                else:
+                    field_name = form.fields[field].label or field.replace('_', ' ').title()
+                    messages.error(request, f"{field_name}: {error}")
+    
+    # Always redirect back to farm management page
+    return redirect('monitoring:farm_management')
 
+@login_required
+def farm_detail(request, farm_id):
+    """View individual farm details"""
+    try:
+        farm = Farm.objects.get(id=farm_id, manager=request.user, is_active=True)
+        
+        # Get farm statistics
+        farm_fields = farm.field_set.all()
+        field_count = farm_fields.count()
+        
+        farm_area_hectares = farm_fields.aggregate(
+            total=Sum('area_hectares')
+        )['total'] or farm.total_area_hectares
+        
+        total_area_acres = farm_area_hectares * Decimal('2.47105')
+        
+        total_harvested = HarvestRecord.objects.filter(
+            field__farm=farm
+        ).aggregate(total=Sum('quantity_tons'))['total'] or Decimal('0')
+        
+        avg_yield = total_harvested / total_area_acres if total_area_acres > 0 else Decimal('0')
+        
+        farm.calculated_field_count = field_count
+        farm.calculated_total_area = total_area_acres
+        farm.calculated_total_harvested = total_harvested
+        farm.calculated_avg_yield = avg_yield
+        
+        context = {
+            'farm': farm,
+            'fields': farm_fields
+        }
+        return render(request, 'monitoring/farm_detail.html', context)
+        
+    except Farm.DoesNotExist:
+        messages.error(request, "Farm not found or you don't have permission to view it.")
+        return redirect('monitoring:farm_management')
+
+@login_required
+def farm_edit(request, farm_id):
+    """Edit farm details"""
+    try:
+        farm = Farm.objects.get(id=farm_id, manager=request.user, is_active=True)
+        
+        if request.method == "POST":
+            form = FarmForm(request.POST, instance=farm)
+            if form.is_valid():
+                updated_farm = form.save(commit=False)
+                updated_farm.manager = request.user
+                updated_farm.save()
+                
+                # Handle crop types
+                crop_types = request.POST.getlist('crop_types')
+                if crop_types:
+                    # Update crop types in notes
+                    base_notes = updated_farm.notes.split('\nCrops:')[0] if updated_farm.notes else ""
+                    updated_farm.notes = f"{base_notes}\nCrops: {', '.join(crop_types)}"
+                    updated_farm.save()
+                
+                messages.success(request, f"Farm '{updated_farm.name}' updated successfully!")
+                return redirect('monitoring:farm_management')
+            else:
+                for field, errors in form.errors.items():
+                    for error in errors:
+                        field_name = form.fields[field].label or field.replace('_', ' ').title()
+                        messages.error(request, f"{field_name}: {error}")
+        else:
+            form = FarmForm(instance=farm)
+        
+        context = {
+            'form': form,
+            'farm': farm,
+            'editing': True
+        }
+        return render(request, 'monitoring/farm_edit.html', context)
+        
+    except Farm.DoesNotExist:
+        messages.error(request, "Farm not found or you don't have permission to edit it.")
+        return redirect('monitoring:farm_management')
+
+@login_required
+def farm_delete(request, farm_id):
+    """Soft delete a farm (set is_active=False)"""
+    try:
+        farm = Farm.objects.get(id=farm_id, manager=request.user, is_active=True)
+        farm_name = farm.name
+        
+        # Soft delete - set is_active to False instead of actually deleting
+        farm.is_active = False
+        farm.save()
+        
+        messages.success(request, f"Farm '{farm_name}' has been deactivated successfully!")
+        
+    except Farm.DoesNotExist:
+        messages.error(request, "Farm not found or you don't have permission to delete it.")
+    
+    return redirect('monitoring:farm_management')
+
+# Alternative hard delete function if needed
+@login_required
+def farm_hard_delete(request, farm_id):
+    """Permanently delete a farm (use with caution)"""
+    try:
+        farm = Farm.objects.get(id=farm_id, manager=request.user)
+        farm_name = farm.name
+        farm.delete()
+        
+        messages.success(request, f"Farm '{farm_name}' deleted permanently!")
+        
+    except Farm.DoesNotExist:
+        messages.error(request, "Farm not found or you don't have permission to delete it.")
+    
+    return redirect('monitoring:farm_management')
 # ========================
 # HARVEST TRACKING VIEWS
 # ========================
@@ -727,6 +858,8 @@ def harvest_tracking(request):
     }
     
     return render(request, 'monitoring/harvest_tracking.html', context)
+
+    
 
 
 # ========================
@@ -2131,3 +2264,4 @@ def user_add(request):
         form = UserAddForm()
     
     return render(request, 'monitoring/user_add.html', {'form': form})
+
