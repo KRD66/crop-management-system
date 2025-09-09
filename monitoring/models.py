@@ -465,38 +465,26 @@ class HarvestRecord(models.Model):
         ('completed', 'Completed'),
         ('cancelled', 'Cancelled'),
     ]
-    
     field = models.ForeignKey(Field, on_delete=models.CASCADE)
-    harvest_date = models.DateField(default=timezone.now)
-    quantity_tons = models.DecimalField(
-        max_digits=10, 
-        decimal_places=2,
-        validators=[MinValueValidator(Decimal('0.01'))]
-    )
-    quality_grade = models.CharField(max_length=1, choices=QUALITY_GRADES)
-    harvested_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='harvests_done')
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='completed')
-    weather_conditions = models.CharField(max_length=200, blank=True)
-    moisture_content = models.DecimalField(
-        max_digits=5, 
-        decimal_places=2, 
-        null=True, 
-        blank=True,
-        validators=[MinValueValidator(Decimal('0.00')), MaxValueValidator(Decimal('100.00'))],
-        help_text="Moisture content percentage"
-    )
+    harvest_date = models.DateField()
+    quantity_tons = models.DecimalField(max_digits=10, decimal_places=2)
+    quality_grade = models.CharField(max_length=1, choices=[('A', 'A'), ('B', 'B'), ('C', 'C')])
+    harvested_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='harvested_records')
+    status = models.CharField(max_length=20, default='completed')
+    weather_conditions = models.CharField(max_length=100, blank=True)
+    moisture_content = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     notes = models.TextField(blank=True)
-    created_at = models.DateTimeField(default=timezone.now)
+    
+    # Add this field
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_harvest_records', null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        verbose_name = "Harvest Record"
-        verbose_name_plural = "Harvest Records"
-        ordering = ['-harvest_date', '-created_at']
+        ordering = ['-harvest_date']
     
     def __str__(self):
-        return f"{self.field} - {self.harvest_date} ({self.quantity_tons} tons)"
-    
+        return f"{self.field} - {self.harvest_date} - {self.quantity_tons}t"
     @property
     def yield_per_hectare(self):
         """Calculate yield per hectare for this harvest"""

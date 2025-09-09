@@ -19,7 +19,7 @@ import json
 import csv
 import random
 from io import BytesIO
-from .forms import UserAddForm, FarmForm
+from .forms import UserAddForm, FarmForm,HarvestForm
 from django.db.models import Sum
 from .models import Farm, HarvestRecord
 
@@ -774,92 +774,330 @@ def farm_hard_delete(request, farm_id):
 # ========================
 # HARVEST TRACKING VIEWS
 # ========================
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from django.contrib import messages
+from django.http import JsonResponse
+from django.db.models import Sum
+from datetime import datetime, timedelta
+from django.views.decorators.http import require_http_methods
+from django.contrib.auth.models import User
+import json
 
 @login_required
 @admin_added_required
 def harvest_tracking(request):
-    """Harvest Tracking view - shows recent harvests with filtering options"""
+    """Enhanced Harvest Tracking view with CRUD operations"""
+    
+    # Handle POST requests for CRUD operations
+    if request.method == 'POST':
+        action = request.POST.get('action')
+        
+        if action == 'create':
+            return create_harvest_record(request)
+        elif action == 'edit':
+            return update_harvest_record(request)
+        elif action == 'delete':
+            return delete_harvest_record(request)
+    
+    # Handle GET request filtering
+    filter_type = request.GET.get('filter', 'all')
+    
+    # Base queryset
     harvests = HarvestRecord.objects.select_related(
         'field__farm', 'field__crop', 'harvested_by'
-    ).order_by('-harvest_date')[:50]
+    ).order_by('-harvest_date')
     
-    total_harvests = HarvestRecord.objects.count()
-    total_quantity = HarvestRecord.objects.aggregate(
+    # Apply filters
+    if filter_type == 'today':
+        today = datetime.now().date()
+        harvests = harvests.filter(harvest_date=today)
+    elif filter_type == 'corn':
+        harvests = harvests.filter(field__crop__name__icontains='corn')
+    elif filter_type == 'wheat':
+        harvests = harvests.filter(field__crop__name__icontains='wheat')
+    elif filter_type == 'soybeans':
+        harvests = harvests.filter(field__crop__name__icontains='soybean')
+    elif filter_type == 'rice':
+        harvests = harvests.filter(field__crop__name__icontains='rice')
+    
+    # Limit to 50 for performance
+    total_records = harvests.count()
+    harvests = harvests[:50]
+    
+    # Calculate statistics
+    all_harvests = HarvestRecord.objects.all()
+    total_quantity = all_harvests.aggregate(
         total=Sum('quantity_tons')
     )['total'] or 0
     
-    week_ago = datetime.now().date() - timedelta(days=7)
-    recent_activity = HarvestRecord.objects.filter(
-        harvest_date__gte=week_ago
+    # Status-based metrics (add status field to model if not exists)
+    completed_harvests = all_harvests.filter(
+        harvest_date__lte=datetime.now().date()
     ).count()
     
-    available_fields = Field.objects.select_related('farm', 'crop').filter(
-        farm__is_active=True,
-        is_active=True
-    ).order_by('farm__name', 'name')
+    # In progress (harvests from last 7 days)
+    week_ago = datetime.now().date() - timedelta(days=7)
+    in_progress_harvests = all_harvests.filter(
+        harvest_date__gte=week_ago,
+        harvest_date__lte=datetime.now().date()
+    ).count()
     
-    completed_harvests = HarvestRecord.objects.filter(
-        status='completed'
-    ).count() if hasattr(HarvestRecord, 'status') else total_harvests
-    
-    in_progress_harvests = HarvestRecord.objects.filter(
-        status='in_progress'
-    ).count() if hasattr(HarvestRecord, 'status') else 0
-    
-    quality_grades = HarvestRecord.objects.values_list('quality_grade', flat=True)
+    # Calculate average quality
+    quality_grades = all_harvests.values_list('quality_grade', flat=True)
     avg_quality = 'A'
     if quality_grades:
         from collections import Counter
         grade_counts = Counter(quality_grades)
         avg_quality = grade_counts.most_common(1)[0][0] if grade_counts else 'A'
     
-    month_ago = datetime.now().date() - timedelta(days=30)
-    harvests_this_month = HarvestRecord.objects.filter(
-        harvest_date__gte=month_ago
-    ).count()
+    # Get available fields and users for the form
+    available_fields = Field.objects.select_related('farm', 'crop').filter(
+        is_active=True
+    ).order_by('farm__name', 'name')
     
-    best_farm = Farm.objects.annotate(
-        total_harvest=Sum('field__harvestrecord__quantity_tons')
-    ).filter(total_harvest__isnull=False).order_by('-total_harvest').first()
+    # Debug: Print field count
+    print(f"DEBUG: Total fields in database: {Field.objects.count()}")
+    print(f"DEBUG: Active fields: {available_fields.count()}")
     
-    best_performing_farm = best_farm.name if best_farm else 'N/A'
-    
-    avg_days_to_harvest = 0
-    fields_with_both_dates = Field.objects.filter(
-        harvestrecord__isnull=False
-    ).distinct()
-    
-    if fields_with_both_dates.exists():
-        total_days = 0
-        count = 0
-        for field in fields_with_both_dates:
-            latest_harvest = field.harvestrecord_set.first()
-            if latest_harvest and hasattr(field, 'planting_date') and field.planting_date:
-                days = (latest_harvest.harvest_date - field.planting_date).days
-                if days > 0:
-                    total_days += days
-                    count += 1
-        avg_days_to_harvest = total_days // count if count > 0 else 0
+    available_users = User.objects.filter(is_active=True).order_by('first_name', 'last_name')
     
     context = {
         'harvests': harvests,
-        'total_harvests': total_harvests,
         'total_quantity': float(total_quantity),
-        'recent_activity': recent_activity,
-        'available_fields': available_fields,
         'completed_harvests': completed_harvests,
         'in_progress_harvests': in_progress_harvests,
         'avg_quality': avg_quality,
-        'harvests_this_week': recent_activity,
-        'harvests_this_month': harvests_this_month,
-        'best_performing_farm': best_performing_farm,
-        'avg_days_to_harvest': avg_days_to_harvest,
-        'total_harvest_records': total_harvests,
+        'available_fields': available_fields,
+        'available_users': available_users,
+        'filter_type': filter_type,
+        'total_records': total_records,
+        'total_harvest_records': all_harvests.count(),
     }
     
     return render(request, 'monitoring/harvest_tracking.html', context)
 
+
+def create_harvest_record(request):
+    """Create a new harvest record"""
+    try:
+        field_id = request.POST.get('field')
+        harvested_by_id = request.POST.get('harvested_by')
+        harvest_date = request.POST.get('harvest_date')
+        quantity = request.POST.get('quantity')
+        quality_grade = request.POST.get('quality_grade')
+        weather = request.POST.get('weather', '')
+        notes = request.POST.get('notes', '')
+        
+        # Validation
+        if not all([field_id, harvested_by_id, harvest_date, quantity, quality_grade]):
+            messages.error(request, 'Please fill in all required fields.')
+            return redirect('harvest_tracking')
+        
+        # Get related objects
+        field = get_object_or_404(Field, id=field_id)
+        harvested_by = get_object_or_404(User, id=harvested_by_id)
+        
+        # Convert and validate data
+        try:
+            quantity_tons = float(quantity)
+            harvest_date_obj = datetime.strptime(harvest_date, '%Y-%m-%d').date()
+        except ValueError:
+            messages.error(request, 'Invalid date or quantity format.')
+            return redirect("monitoring:harvest_tracking")
+        
+        # Create harvest record
+        harvest_record = HarvestRecord.objects.create(
+            field=field,
+            harvested_by=harvested_by,
+            harvest_date=harvest_date_obj,
+            quantity_tons=quantity_tons,
+            quality_grade=quality_grade.upper(),
+            weather_conditions=weather,
+            notes=notes,
+            created_by=request.user
+        )
+        
+        messages.success(request, f'Harvest record created successfully! {quantity_tons} tons of {field.crop.name} recorded.')
+        
+    except Exception as e:
+        messages.error(request, f'Error creating harvest record: {str(e)}')
     
+    return redirect("monitoring:harvest_tracking")
+
+
+def update_harvest_record(request):
+    """Update an existing harvest record"""
+    try:
+        harvest_id = request.POST.get('harvest_id')
+        if not harvest_id:
+            messages.error(request, 'Invalid harvest record.')
+            return redirect("monitoring:harvest_tracking")
+        
+        harvest_record = get_object_or_404(HarvestRecord, id=harvest_id)
+        
+        # Update fields
+        field_id = request.POST.get('field')
+        harvested_by_id = request.POST.get('harvested_by')
+        harvest_date = request.POST.get('harvest_date')
+        quantity = request.POST.get('quantity')
+        quality_grade = request.POST.get('quality_grade')
+        weather = request.POST.get('weather', '')
+        notes = request.POST.get('notes', '')
+        
+        # Validation
+        if not all([field_id, harvested_by_id, harvest_date, quantity, quality_grade]):
+            messages.error(request, 'Please fill in all required fields.')
+            return redirect("monitoring:harvest_tracking")
+        
+        # Get related objects
+        field = get_object_or_404(Field, id=field_id)
+        harvested_by = get_object_or_404(User, id=harvested_by_id)
+        
+        # Convert and validate data
+        try:
+            quantity_tons = float(quantity)
+            harvest_date_obj = datetime.strptime(harvest_date, '%Y-%m-%d').date()
+        except ValueError:
+            messages.error(request, 'Invalid date or quantity format.')
+            return redirect("monitoring:harvest_tracking")
+        
+        # Update harvest record
+        harvest_record.field = field
+        harvest_record.harvested_by = harvested_by
+        harvest_record.harvest_date = harvest_date_obj
+        harvest_record.quantity_tons = quantity_tons
+        harvest_record.quality_grade = quality_grade.upper()
+        harvest_record.weather_conditions = weather
+        harvest_record.notes = notes
+        harvest_record.save()
+        
+        messages.success(request, f'Harvest record updated successfully!')
+        
+    except Exception as e:
+        messages.error(request, f'Error updating harvest record: {str(e)}')
+    
+    return redirect('"monitoring:harvest_tracking"')
+
+
+def delete_harvest_record(request):
+    """Delete a harvest record"""
+    try:
+        harvest_id = request.POST.get('harvest_id')
+        if not harvest_id:
+            messages.error(request, 'Invalid harvest record.')
+            return redirect('harvest_tracking')
+        
+        harvest_record = get_object_or_404(HarvestRecord, id=harvest_id)
+        
+        # Store info for success message
+        field_name = f"{harvest_record.field.farm.name} - {harvest_record.field.name}"
+        quantity = harvest_record.quantity_tons
+        
+        # Delete the record
+        harvest_record.delete()
+        
+        messages.success(request, f'Harvest record for {field_name} ({quantity} tons) deleted successfully.')
+        
+    except Exception as e:
+        messages.error(request, f'Error deleting harvest record: {str(e)}')
+    
+    return redirect("monitoring:harvest_tracking")
+
+
+@login_required
+@require_http_methods(["GET"])
+def harvest_details(request, harvest_id):
+    """Get harvest details for view/edit operations (AJAX endpoint)"""
+    try:
+        harvest = get_object_or_404(HarvestRecord, id=harvest_id)
+        
+        data = {
+            'success': True,
+            'data': {
+                'id': harvest.id,
+                'field_id': harvest.field.id,
+                'field_name': f"{harvest.field.farm.name} - {harvest.field.name}",
+                'crop_name': harvest.field.crop.name if harvest.field.crop else '',
+                'harvested_by_id': harvest.harvested_by.id if harvest.harvested_by else '',
+                'harvested_by_name': f"{harvest.harvested_by.first_name} {harvest.harvested_by.last_name}" if harvest.harvested_by else '',
+                'harvest_date': harvest.harvest_date.strftime('%Y-%m-%d'),
+                'quantity_tons': float(harvest.quantity_tons),
+                'quality_grade': harvest.quality_grade,
+                'weather_conditions': harvest.weather_conditions or '',
+                'notes': harvest.notes or '',
+                'created_at': harvest.created_at.strftime('%Y-%m-%d %H:%M') if hasattr(harvest, 'created_at') else '',
+            }
+        }
+        
+        return JsonResponse(data)
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        })
+
+
+@login_required
+@require_http_methods(["GET"])
+def harvest_summary_stats(request):
+    """Get summary statistics for dashboard (AJAX endpoint)"""
+    try:
+        # Date ranges
+        today = datetime.now().date()
+        week_ago = today - timedelta(days=7)
+        month_ago = today - timedelta(days=30)
+        
+        # Calculate stats
+        total_harvests = HarvestRecord.objects.count()
+        total_quantity = HarvestRecord.objects.aggregate(
+            total=Sum('quantity_tons')
+        )['total'] or 0
+        
+        week_quantity = HarvestRecord.objects.filter(
+            harvest_date__gte=week_ago
+        ).aggregate(total=Sum('quantity_tons'))['total'] or 0
+        
+        month_quantity = HarvestRecord.objects.filter(
+            harvest_date__gte=month_ago
+        ).aggregate(total=Sum('quantity_tons'))['total'] or 0
+        
+        # Top performing fields
+        top_fields = Field.objects.annotate(
+            total_harvest=Sum('harvestrecord__quantity_tons')
+        ).filter(total_harvest__gt=0).order_by('-total_harvest')[:5]
+        
+        # Quality distribution
+        quality_stats = {}
+        for grade in ['A', 'B', 'C']:
+            count = HarvestRecord.objects.filter(quality_grade=grade).count()
+            quality_stats[f'grade_{grade}'] = count
+        
+        data = {
+            'success': True,
+            'stats': {
+                'total_harvests': total_harvests,
+                'total_quantity': float(total_quantity),
+                'week_quantity': float(week_quantity),
+                'month_quantity': float(month_quantity),
+                'quality_distribution': quality_stats,
+                'top_fields': [
+                    {
+                        'name': f"{field.farm.name} - {field.name}",
+                        'total': float(field.total_harvest)
+                    } for field in top_fields
+                ]
+            }
+        }
+        
+        return JsonResponse(data)
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        })
 
 
 # ========================

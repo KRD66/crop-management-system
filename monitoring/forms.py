@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from django.db import models
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.contrib.auth.models import User
-from .models import Farm
+from .models import Farm, HarvestRecord
 from decimal import Decimal
  
 
@@ -432,3 +432,16 @@ class FarmForm(forms.ModelForm):
         if commit:
             farm.save()
         return farm
+
+class HarvestForm(forms.ModelForm):
+    class Meta:
+        model = HarvestRecord
+        fields = [
+            'field', 'harvest_date', 'quantity_tons', 'quality_grade',
+            'harvested_by', 'status', 'weather_conditions', 'moisture_content', 'notes'
+        ]
+    
+        widgets = {
+            'harvest_date': forms.DateInput(attrs={'type': 'date'}),
+            'notes': forms.Textarea(attrs={'rows': 3}),
+        }
