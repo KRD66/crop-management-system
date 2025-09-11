@@ -1418,7 +1418,6 @@ import csv
 from .models import InventoryItem, StorageLocation, CropType, InventoryTransaction
 from .forms import AddInventoryForm, RemoveInventoryForm, InventoryFilterForm, StorageLocationForm, CropTypeForm
 
-
 @login_required
 def inventory_dashboard(request):
     """Main inventory dashboard view"""
@@ -1475,8 +1474,47 @@ def inventory_dashboard(request):
     page_number = request.GET.get('page', 1)
     page_obj = paginator.get_page(page_number)
     
-    # Get dashboard statistics
-    stats = InventoryItem.objects.get_summary_stats()
+    # CALCULATE DASHBOARD STATISTICS DIRECTLY (Fixed section)
+    all_inventory_items = InventoryItem.objects.select_related('crop_type', 'storage_location')
+    
+    # 1. Total Inventory (sum of all quantities)
+    total_inventory = all_inventory_items.aggregate(total=Sum('quantity'))['total'] or 0
+    
+    # 2. Storage Locations count (count unique active storage locations that have inventory)
+    storage_locations_count = all_inventory_items.values('storage_location').distinct().count()
+    
+    # 3. Low Stock and Expiring items counts
+    low_stock_count = 0
+    expiring_count = 0
+    expiry_threshold = date.today() + timedelta(days=30)
+    
+    for item in all_inventory_items:
+        # Check if expiring within 30 days
+        if item.expiry_date and item.expiry_date <= expiry_threshold and item.expiry_date >= date.today():
+            expiring_count += 1
+        
+        # Check for low stock - you'll need to define what constitutes "low stock"
+        # Option 1: If you have a minimum_stock_threshold field on crop_type
+        if hasattr(item.crop_type, 'minimum_stock_threshold') and item.crop_type.minimum_stock_threshold:
+            if item.quantity <= item.crop_type.minimum_stock_threshold:
+                low_stock_count += 1
+        # Option 2: Use a fixed threshold (e.g., less than 50 tons is low stock)
+        elif item.quantity < 50:  # Adjust this threshold as needed
+            low_stock_count += 1
+    
+    # Create stats dictionary with exact template key names
+    stats = {
+        'total_inventory': round(float(total_inventory), 1),
+        'storage_locations': storage_locations_count,  # Template expects this key
+        'low_stock_items': low_stock_count,  # Template expects this key
+        'expiring_items': expiring_count  # Template expects this key
+    }
+    
+    # Debug print (remove after testing)
+    print(f"DEBUG - Stats calculated: {stats}")
+    print(f"DEBUG - Storage locations: {storage_locations_count}")
+    print(f"DEBUG - Low stock items: {low_stock_count}")
+    print(f"DEBUG - Expiring items: {expiring_count}")
     
     # Get recent transactions
     recent_transactions = InventoryTransaction.objects.select_related(
@@ -1495,7 +1533,7 @@ def inventory_dashboard(request):
     
     context = {
         'inventory_items': page_obj,
-        'stats': stats,
+        'stats': stats,  # Now calculated dynamically
         'recent_transactions': recent_transactions,
         'filter_form': filter_form,
         'add_form': add_form,
