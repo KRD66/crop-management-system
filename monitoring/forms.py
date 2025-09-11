@@ -445,3 +445,225 @@ class HarvestForm(forms.ModelForm):
             'harvest_date': forms.DateInput(attrs={'type': 'date'}),
             'notes': forms.Textarea(attrs={'rows': 3}),
         }
+        
+        
+    # monitoring/forms.py
+from django import forms
+from .models import InventoryItem, StorageLocation, CropType
+from decimal import Decimal
+
+class AddInventoryForm(forms.ModelForm):
+    """Form for adding new inventory items"""
+    
+    class Meta:
+        model = InventoryItem
+        fields = ['crop_type', 'storage_location', 'quantity', 'quality_grade', 'expiry_date']
+        widgets = {
+            'crop_type': forms.Select(attrs={
+                'class': 'form-select',
+                'required': True
+            }),
+            'storage_location': forms.Select(attrs={
+                'class': 'form-select',
+                'required': True
+            }),
+            'quantity': forms.NumberInput(attrs={
+                'class': 'form-input',
+                'min': '0.01',
+                'step': '0.01',
+                'placeholder': '100',
+                'required': True
+            }),
+            'quality_grade': forms.Select(attrs={
+                'class': 'form-select',
+                'required': True
+            }),
+            'expiry_date': forms.DateInput(attrs={
+                'class': 'form-input',
+                'type': 'date',
+                'required': True
+            }),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Filter active crop types and storage locations
+        self.fields['crop_type'].queryset = CropType.objects.filter(is_active=True)
+        self.fields['storage_location'].queryset = StorageLocation.objects.filter(is_active=True)
+        
+        # Add empty option labels
+        self.fields['crop_type'].empty_label = "Select crop type"
+        self.fields['storage_location'].empty_label = "Select location"
+        self.fields['quality_grade'].empty_label = "Select grade"
+
+    def clean_quantity(self):
+        quantity = self.cleaned_data.get('quantity')
+        if quantity and quantity <= 0:
+            raise forms.ValidationError("Quantity must be greater than 0")
+        return quantity
+
+
+class RemoveInventoryForm(forms.Form):
+    """Form for removing inventory items using FIFO method"""
+    
+    crop_type = forms.ModelChoiceField(
+        queryset=CropType.objects.filter(is_active=True),
+        empty_label="Select crop type",
+        widget=forms.Select(attrs={
+            'class': 'form-select',
+            'required': True
+        })
+    )
+    
+    storage_location = forms.ModelChoiceField(
+        queryset=StorageLocation.objects.filter(is_active=True),
+        empty_label="Select location",
+        widget=forms.Select(attrs={
+            'class': 'form-select',
+            'required': True
+        })
+    )
+    
+    quantity = forms.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        min_value=Decimal('0.01'),
+        widget=forms.NumberInput(attrs={
+            'class': 'form-input',
+            'min': '0.01',
+            'step': '0.01',
+            'placeholder': 'Enter quantity to remove',
+            'required': True
+        })
+    )
+    
+    notes = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={
+            'class': 'form-input',
+            'rows': 3,
+            'placeholder': 'Optional notes about this removal...'
+        })
+    )
+
+    def clean_quantity(self):
+        quantity = self.cleaned_data.get('quantity')
+        if quantity and quantity <= 0:
+            raise forms.ValidationError("Quantity must be greater than 0")
+        return quantity
+
+
+class InventoryFilterForm(forms.Form):
+    """Form for filtering inventory items"""
+    
+    crop_type = forms.ModelChoiceField(
+        queryset=CropType.objects.filter(is_active=True),
+        empty_label="All Crops",
+        required=False,
+        widget=forms.Select(attrs={
+            'class': 'form-select'
+        })
+    )
+    
+    storage_location = forms.ModelChoiceField(
+        queryset=StorageLocation.objects.filter(is_active=True),
+        empty_label="All Locations",
+        required=False,
+        widget=forms.Select(attrs={
+            'class': 'form-select'
+        })
+    )
+    
+    STATUS_CHOICES = [
+        ('', 'All Status'),
+        ('good', 'Good'),
+        ('low_stock', 'Low Stock'),
+        ('expiring', 'Expiring Soon'),
+        ('expired', 'Expired'),
+    ]
+    
+    status = forms.ChoiceField(
+        choices=STATUS_CHOICES,
+        required=False,
+        widget=forms.Select(attrs={
+            'class': 'form-select'
+        })
+    )
+    
+    QUALITY_CHOICES = [
+        ('', 'All Grades'),
+        ('A', 'Grade A - Premium'),
+        ('B', 'Grade B - Good'),
+        ('C', 'Grade C - Average'),
+        ('D', 'Grade D - Below Average'),
+    ]
+    
+    quality_grade = forms.ChoiceField(
+        choices=QUALITY_CHOICES,
+        required=False,
+        widget=forms.Select(attrs={
+            'class': 'form-select'
+        })
+    )
+
+
+class StorageLocationForm(forms.ModelForm):
+    """Form for managing storage locations"""
+    
+    class Meta:
+        model = StorageLocation
+        fields = ['name', 'code', 'address', 'capacity_tons']
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': 'form-input',
+                'placeholder': 'Warehouse A'
+            }),
+            'code': forms.TextInput(attrs={
+                'class': 'form-input',
+                'placeholder': 'WH-A'
+            }),
+            'address': forms.Textarea(attrs={
+                'class': 'form-input',
+                'rows': 3,
+                'placeholder': 'Full address of storage location'
+            }),
+            'capacity_tons': forms.NumberInput(attrs={
+                'class': 'form-input',
+                'min': '1',
+                'step': '0.01',
+                'placeholder': '1000'
+            }),
+        }
+
+
+class CropTypeForm(forms.ModelForm):
+    """Form for managing crop types"""
+    
+    class Meta:
+        model = CropType
+        fields = ['name', 'display_name', 'description', 'average_shelf_life_days', 'minimum_stock_threshold']
+        widgets = {
+            'name': forms.Select(attrs={
+                'class': 'form-select'
+            }),
+            'display_name': forms.TextInput(attrs={
+                'class': 'form-input',
+                'placeholder': 'Corn (Yellow)'
+            }),
+            'description': forms.Textarea(attrs={
+                'class': 'form-input',
+                'rows': 3,
+                'placeholder': 'Description of this crop type...'
+            }),
+            'average_shelf_life_days': forms.NumberInput(attrs={
+                'class': 'form-input',
+                'min': '1',
+                'placeholder': '180'
+            }),
+            'minimum_stock_threshold': forms.NumberInput(attrs={
+                'class': 'form-input',
+                'min': '0.01',
+                'step': '0.01',
+                'placeholder': '100.00'
+            }),
+        }

@@ -75,10 +75,12 @@
     .status-expiring { background: #fef3c7; color: #92400e; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
     .status-low-stock { background: #fef2f2; color: #dc2626; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
     .status-good { background: #dcfce7; color: #166534; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
+    .status-expired { background: #fee2e2; color: #991b1b; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
 
     .grade-a { background: #065f46; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
     .grade-b { background: #1f2937; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
     .grade-c { background: #6b7280; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
+    .grade-d { background: #9ca3af; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
 
     /* Button styles */
     .btn {
@@ -211,6 +213,28 @@
         box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
     }
 
+    .error {
+        color: #dc2626;
+        font-size: 0.8rem;
+        margin-top: 4px;
+    }
+
+    /* Filter styles */
+    .filter-section {
+        background: #f8fafc;
+        padding: 15px 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        border: 1px solid #e5e7eb;
+    }
+
+    .filter-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        align-items: end;
+    }
+
     /* Responsive design */
     @media (max-width: 1024px) {
         .metrics {
@@ -268,6 +292,10 @@
             min-width: 120px;
             justify-content: center;
         }
+
+        .filter-grid {
+            grid-template-columns: 1fr;
+        }
     }
 
     @media (max-width: 480px) {
@@ -319,7 +347,7 @@
         </div>
         <div class="metric-content">
             <div class="metric-label">Total Inventory</div>
-            <div class="metric-value">9,570 tons</div>
+            <div class="metric-value" id="total-inventory">{{ stats.total_inventory|floatformat:0 }} tons</div>
             <div class="metric-change">Across all locations</div>
         </div>
     </div>
@@ -330,7 +358,7 @@
         </div>
         <div class="metric-content">
             <div class="metric-label">Storage Locations</div>
-            <div class="metric-value">5</div>
+            <div class="metric-value" id="storage-locations">{{ stats.storage_locations }}</div>
             <div class="metric-change">Active warehouses</div>
         </div>
     </div>
@@ -341,7 +369,7 @@
         </div>
         <div class="metric-content">
             <div class="metric-label">Low Stock Items</div>
-            <div class="metric-value">2</div>
+            <div class="metric-value" id="low-stock">{{ stats.low_stock_items }}</div>
             <div class="metric-change">Need restocking</div>
         </div>
     </div>
@@ -352,10 +380,37 @@
         </div>
         <div class="metric-content">
             <div class="metric-label">Expiring Soon</div>
-            <div class="metric-value">4</div>
+            <div class="metric-value" id="expiring-soon">{{ stats.expiring_items }}</div>
             <div class="metric-change">Within 30 days</div>
         </div>
     </div>
+</div>
+
+<!-- Inventory Filters -->
+<div class="filter-section">
+    <form method="get" id="filterForm">
+        <div class="filter-grid">
+            {{ filter_form.crop_type }}
+            {{ filter_form.storage_location }}
+            {{ filter_form.status }}
+            {{ filter_form.quality_grade }}
+            
+            <div style="display: flex; gap: 10px;">
+                <button type="submit" class="btn btn-secondary">
+                    <i class="fas fa-filter"></i>
+                    Filter
+                </button>
+                <a href="{% url 'monitoring:inventory_dashboard' %}" class="btn btn-secondary">
+                    <i class="fas fa-times"></i>
+                    Clear
+                </a>
+                <a href="{% url 'monitoring:export_inventory' %}" class="btn btn-secondary">
+                    <i class="fas fa-download"></i>
+                    Export
+                </a>
+            </div>
+        </div>
+    </form>
 </div>
 
 <!-- Inventory Management Section -->
@@ -365,6 +420,7 @@
             <h3 style="margin: 0 0 5px 0; color: #111827;">Inventory Management</h3>
             <p style="color: #6b7280; margin: 0; font-size: 0.875rem;">Track all stored crops and their conditions</p>
         </div>
+        {% if perms.can_manage_inventory %}
         <div class="button-container">
             <button class="btn btn-secondary" onclick="showRemoveModal()">
                 <i class="fas fa-minus"></i>
@@ -375,6 +431,7 @@
                 Add Stock
             </button>
         </div>
+        {% endif %}
     </div>
 
     <!-- Current Inventory Table -->
@@ -397,49 +454,110 @@
                         <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Status</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="inventory-tbody">
+                    {% for item in inventory_items %}
                     <tr style="border-bottom: 1px solid #f3f4f6;">
-                        <td style="padding: 16px; font-weight: 500; color: #111827;">Corn</td>
-                        <td style="padding: 16px; color: #6b7280;">5200 tons</td>
-                        <td style="padding: 16px; color: #6b7280;">Warehouse A</td>
-                        <td style="padding: 16px;"><span class="grade-a">Grade A</span></td>
-                        <td style="padding: 16px; color: #6b7280;">2024-08-05</td>
-                        <td style="padding: 16px; color: #6b7280;">2025-02-05</td>
-                        <td style="padding: 16px;"><span class="status-expiring">Expiring</span></td>
+                        <td style="padding: 16px; font-weight: 500; color: #111827;">{{ item.crop_type.display_name }}</td>
+                        <td style="padding: 16px; color: #6b7280;">{{ item.quantity|floatformat:0 }} tons</td>
+                        <td style="padding: 16px; color: #6b7280;">{{ item.storage_location.name }}</td>
+                        <td style="padding: 16px;"><span class="grade-{{ item.quality_grade|lower }}">{{ item.get_quality_grade_display }}</span></td>
+                        <td style="padding: 16px; color: #6b7280;">{{ item.date_stored|date:"Y-m-d" }}</td>
+                        <td style="padding: 16px; color: #6b7280;">{{ item.expiry_date|date:"Y-m-d" }}</td>
+                        <td style="padding: 16px;"><span class="status-{{ item.status }}">{{ item.status|title }}</span></td>
                     </tr>
-                    <tr style="border-bottom: 1px solid #f3f4f6;">
-                        <td style="padding: 16px; font-weight: 500; color: #111827;">Wheat</td>
-                        <td style="padding: 16px; color: #6b7280;">3800 tons</td>
-                        <td style="padding: 16px; color: #6b7280;">Warehouse B</td>
-                        <td style="padding: 16px;"><span class="grade-b">Grade B</span></td>
-                        <td style="padding: 16px; color: #6b7280;">2024-08-04</td>
-                        <td style="padding: 16px; color: #6b7280;">2024-12-04</td>
-                        <td style="padding: 16px;"><span class="status-expiring">Expiring</span></td>
-                    </tr>
-                    <tr style="border-bottom: 1px solid #f3f4f6;">
-                        <td style="padding: 16px; font-weight: 500; color: #111827;">Cocoa</td>
-                        <td style="padding: 16px; color: #6b7280;">450 tons</td>
-                        <td style="padding: 16px; color: #6b7280;">Warehouse A</td>
-                        <td style="padding: 16px;"><span class="grade-a">Grade A</span></td>
-                        <td style="padding: 16px; color: #6b7280;">2024-07-20</td>
-                        <td style="padding: 16px; color: #6b7280;">2024-10-20</td>
-                        <td style="padding: 16px;"><span class="status-low-stock">Low Stock</span></td>
-                    </tr>
+                    {% empty %}
                     <tr>
-                        <td style="padding: 16px; font-weight: 500; color: #111827;">Rice</td>
-                        <td style="padding: 16px; color: #6b7280;">120 tons</td>
-                        <td style="padding: 16px; color: #6b7280;">Warehouse C</td>
-                        <td style="padding: 16px;"><span class="grade-c">Grade C</span></td>
-                        <td style="padding: 16px; color: #6b7280;">2024-07-15</td>
-                        <td style="padding: 16px; color: #6b7280;">2024-09-15</td>
-                        <td style="padding: 16px;"><span class="status-low-stock">Low Stock</span></td>
+                        <td colspan="7" style="padding: 40px; text-align: center; color: #6b7280;">
+                            <i class="fas fa-box-open" style="font-size: 2rem; margin-bottom: 10px; display: block;"></i>
+                            No inventory items found
+                        </td>
                     </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        {% if inventory_items.has_other_pages %}
+        <div style="padding: 20px; border-top: 1px solid #f3f4f6; display: flex; justify-content: between; align-items: center;">
+            <div style="color: #6b7280; font-size: 0.875rem;">
+                Showing {{ inventory_items.start_index }} to {{ inventory_items.end_index }} of {{ inventory_items.paginator.count }} items
+            </div>
+            <div style="display: flex; gap: 5px;">
+                {% if inventory_items.has_previous %}
+                    <a href="?page=1{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" class="btn btn-secondary">First</a>
+                    <a href="?page={{ inventory_items.previous_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" class="btn btn-secondary">Previous</a>
+                {% endif %}
+                
+                <span style="padding: 10px 15px; color: #111827; font-weight: 500;">
+                    Page {{ inventory_items.number }} of {{ inventory_items.paginator.num_pages }}
+                </span>
+                
+                {% if inventory_items.has_next %}
+                    <a href="?page={{ inventory_items.next_page_number }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" class="btn btn-secondary">Next</a>
+                    <a href="?page={{ inventory_items.paginator.num_pages }}{% for key, value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value }}{% endif %}{% endfor %}" class="btn btn-secondary">Last</a>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Recent Transactions Section -->
+<div class="section">
+    <div style="display: flex; justify-content: between; align-items: center; margin-bottom: 20px;">
+        <div>
+            <h3 style="margin: 0 0 5px 0; color: #111827;">Recent Transactions</h3>
+            <p style="color: #6b7280; margin: 0; font-size: 0.875rem;">Latest inventory changes</p>
+        </div>
+        <a href="{% url 'monitoring:inventory_history' %}" class="btn btn-secondary">
+            <i class="fas fa-history"></i>
+            View All
+        </a>
+    </div>
+
+    <div style="background: white; border-radius: 8px;">
+        <div class="inventory-table-wrapper">
+            <table class="inventory-table">
+                <thead style="background: #f8fafc;">
+                    <tr>
+                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Date & Time</th>
+                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Action</th>
+                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Crop</th>
+                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Quantity</th>
+                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">Location</th>
+                        <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem; border-bottom: 1px solid #e5e7eb;">User</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for transaction in recent_transactions %}
+                    <tr style="border-bottom: 1px solid #f3f4f6;">
+                        <td style="padding: 16px; color: #6b7280; font-size: 0.875rem;">{{ transaction.timestamp|date:"M d, Y H:i" }}</td>
+                        <td style="padding: 16px;">
+                            <span class="status-{% if transaction.action_type == 'ADD' %}good{% elif transaction.action_type == 'REMOVE' %}expiring{% else %}low-stock{% endif %}">
+                                {{ transaction.get_action_type_display }}
+                            </span>
+                        </td>
+                        <td style="padding: 16px; font-weight: 500; color: #111827;">{{ transaction.inventory_item.crop_type.display_name }}</td>
+                        <td style="padding: 16px; color: #6b7280;">{{ transaction.quantity_display }} tons</td>
+                        <td style="padding: 16px; color: #6b7280;">{{ transaction.inventory_item.storage_location.name }}</td>
+                        <td style="padding: 16px; color: #6b7280;">{{ transaction.user.get_full_name|default:transaction.user.username }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" style="padding: 40px; text-align: center; color: #6b7280;">
+                            <i class="fas fa-history" style="font-size: 2rem; margin-bottom: 10px; display: block;"></i>
+                            No recent transactions
+                        </td>
+                    </tr>
+                    {% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
 </div>
 
+{% if perms.can_manage_inventory %}
 <!-- Add to Inventory Modal -->
 <div id="addInventoryModal" class="modal-overlay">
     <div class="modal-container">
@@ -450,48 +568,37 @@
         </div>
         <div class="modal-body">
             <form class="form-grid" id="addInventoryForm">
+                {% csrf_token %}
                 <div class="form-row">
                     <div class="form-group">
                         <label class="form-label">Crop Type</label>
-                        <select class="form-select" name="cropType" required>
-                            <option value="">Select crop</option>
-                            <option value="corn">Corn</option>
-                            <option value="wheat">Wheat</option>
-                            <option value="cocoa">Cocoa</option>
-                            <option value="rice">Rice</option>
-                        </select>
+                        {{ add_form.crop_type }}
+                        <div class="error" id="crop_type_error"></div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Storage Location</label>
-                        <select class="form-select" name="location" required>
-                            <option value="">Select location</option>
-                            <option value="warehouse-a">Warehouse A</option>
-                            <option value="warehouse-b">Warehouse B</option>
-                            <option value="warehouse-c">Warehouse C</option>
-                        </select>
+                        {{ add_form.storage_location }}
+                        <div class="error" id="storage_location_error"></div>
                     </div>
                 </div>
 
                 <div class="form-row">
                     <div class="form-group">
                         <label class="form-label">Quantity (tons)</label>
-                        <input type="number" class="form-input" name="quantity" placeholder="100" min="0" step="0.1" required>
+                        {{ add_form.quantity }}
+                        <div class="error" id="quantity_error"></div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Quality Grade</label>
-                        <select class="form-select" name="quality" required>
-                            <option value="">Select grade</option>
-                            <option value="A">Grade A - Premium</option>
-                            <option value="B">Grade B - Good</option>
-                            <option value="C">Grade C - Average</option>
-                            <option value="D">Grade D - Below Average</option>
-                        </select>
+                        {{ add_form.quality_grade }}
+                        <div class="error" id="quality_grade_error"></div>
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">Expiry Date</label>
-                    <input type="date" class="form-input" name="expiryDate" required>
+                    {{ add_form.expiry_date }}
+                    <div class="error" id="expiry_date_error"></div>
                 </div>
 
                 <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px;">
@@ -513,31 +620,30 @@
         </div>
         <div class="modal-body">
             <form class="form-grid" id="removeInventoryForm">
+                {% csrf_token %}
                 <div class="form-row">
                     <div class="form-group">
                         <label class="form-label">Crop Type</label>
-                        <select class="form-select" name="cropType" required>
-                            <option value="">Select crop</option>
-                            <option value="corn">Corn (5200 tons available)</option>
-                            <option value="wheat">Wheat (3800 tons available)</option>
-                            <option value="cocoa">Cocoa (450 tons available)</option>
-                            <option value="rice">Rice (120 tons available)</option>
-                        </select>
+                        {{ remove_form.crop_type }}
+                        <div class="error" id="remove_crop_type_error"></div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">Storage Location</label>
-                        <select class="form-select" name="location" required>
-                            <option value="">Select location</option>
-                            <option value="warehouse-a">Warehouse A</option>
-                            <option value="warehouse-b">Warehouse B</option>
-                            <option value="warehouse-c">Warehouse C</option>
-                        </select>
+                        {{ remove_form.storage_location }}
+                        <div class="error" id="remove_storage_location_error"></div>
                     </div>
                 </div>
 
                 <div class="form-group">
                     <label class="form-label">Quantity (tons)</label>
-                    <input type="number" class="form-input" name="quantity" placeholder="100" min="0" step="0.1" required>
+                    {{ remove_form.quantity }}
+                    <div class="error" id="remove_quantity_error"></div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Notes (Optional)</label>
+                    {{ remove_form.notes }}
+                    <div class="error" id="remove_notes_error"></div>
                 </div>
 
                 <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px;">
@@ -548,21 +654,24 @@
         </div>
     </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // Set default expiry date (6 months from now)
-        const expiryInput = document.querySelector('#addInventoryModal input[type="date"]');
-        if (expiryInput) {
-            const sixMonthsFromNow = new Date();
-            sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
-            expiryInput.value = sixMonthsFromNow.toISOString().split('T')[0];
-        }
-        
         // Initialize with success message
         showToast('Inventory management loaded successfully', 'success');
+
+        // Update remove form crop options when crop type changes
+        const removeCropSelect = document.querySelector('#removeInventoryForm select[name="crop_type"]');
+        const removeLocationSelect = document.querySelector('#removeInventoryForm select[name="storage_location"]');
+        
+        if (removeCropSelect) {
+            removeCropSelect.addEventListener('change', function() {
+                updateLocationOptions(this.value, removeLocationSelect);
+            });
+        }
     });
 
     // Modal functions
@@ -572,6 +681,7 @@
 
     function hideAddModal() {
         document.getElementById('addInventoryModal').style.display = 'none';
+        clearFormErrors('addInventoryForm');
     }
 
     function showRemoveModal() {
@@ -580,6 +690,7 @@
 
     function hideRemoveModal() {
         document.getElementById('removeInventoryModal').style.display = 'none';
+        clearFormErrors('removeInventoryForm');
     }
 
     // Close modals when clicking outside
@@ -599,40 +710,138 @@
     document.getElementById('addInventoryForm').addEventListener('submit', function(e) {
         e.preventDefault();
         
-        // Get form data
         const formData = new FormData(this);
-        const data = Object.fromEntries(formData.entries());
         
-        console.log('Add inventory data:', data);
-        showToast('Inventory added successfully!', 'success');
-        hideAddModal();
-        
-        // Reset form
-        this.reset();
-        
-        // Reset expiry date to default
-        const expiryInput = this.querySelector('input[type="date"]');
-        if (expiryInput) {
-            const sixMonthsFromNow = new Date();
-            sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
-            expiryInput.value = sixMonthsFromNow.toISOString().split('T')[0];
-        }
+        fetch('{% url "monitoring:add_inventory" %}', {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast(data.message, 'success');
+                hideAddModal();
+                this.reset();
+                updateDashboardStats(data.stats);
+                // Refresh the page to show new inventory
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                if (data.errors) {
+                    showFormErrors('addInventoryForm', data.errors);
+                } else {
+                    showToast(data.error || 'An error occurred', 'error');
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showToast('An error occurred while adding inventory', 'error');
+        });
     });
 
     document.getElementById('removeInventoryForm').addEventListener('submit', function(e) {
         e.preventDefault();
         
-        // Get form data
         const formData = new FormData(this);
-        const data = Object.fromEntries(formData.entries());
         
-        console.log('Remove inventory data:', data);
-        showToast('Inventory removed successfully!', 'success');
-        hideRemoveModal();
-        
-        // Reset form
-        this.reset();
+        fetch('{% url "monitoring:remove_inventory" %}', {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast(data.message, 'success');
+                hideRemoveModal();
+                this.reset();
+                updateDashboardStats(data.stats);
+                // Refresh the page to show updated inventory
+                setTimeout(() => {
+                    window.location.reload();
+                }, 1000);
+            } else {
+                if (data.errors) {
+                    showFormErrors('removeInventoryForm', data.errors);
+                } else {
+                    showToast(data.error || 'An error occurred', 'error');
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showToast('An error occurred while removing inventory', 'error');
+        });
     });
+
+    // Helper functions
+    function clearFormErrors(formId) {
+        const form = document.getElementById(formId);
+        const errorDivs = form.querySelectorAll('.error');
+        errorDivs.forEach(div => div.textContent = '');
+        
+        const inputs = form.querySelectorAll('input, select');
+        inputs.forEach(input => input.style.borderColor = '');
+    }
+
+    function showFormErrors(formId, errors) {
+        clearFormErrors(formId);
+        
+        const prefix = formId === 'removeInventoryForm' ? 'remove_' : '';
+        
+        for (const [field, message] of Object.entries(errors)) {
+            const errorDiv = document.getElementById(prefix + field + '_error');
+            const input = document.querySelector(`#${formId} [name="${field}"]`);
+            
+            if (errorDiv) {
+                errorDiv.textContent = message;
+            }
+            if (input) {
+                input.style.borderColor = '#dc2626';
+            }
+        }
+    }
+
+    function updateDashboardStats(stats) {
+        if (stats) {
+            document.getElementById('total-inventory').textContent = 
+                Math.round(stats.total_inventory) + ' tons';
+            document.getElementById('storage-locations').textContent = stats.storage_locations;
+            document.getElementById('low-stock').textContent = stats.low_stock_items;
+            document.getElementById('expiring-soon').textContent = stats.expiring_items;
+        }
+    }
+
+    function updateLocationOptions(cropTypeId, locationSelect) {
+        if (!cropTypeId) {
+            return;
+        }
+
+        fetch(`{% url 'monitoring:get_crop_locations' %}?crop_type_id=${cropTypeId}`)
+        .then(response => response.json())
+        .then(data => {
+            // Clear existing options
+            locationSelect.innerHTML = '<option value="">Select location</option>';
+            
+            // Add new options
+            data.locations.forEach(location => {
+                const option = document.createElement('option');
+                option.value = location.id;
+                option.textContent = `${location.name} (${location.available_quantity}t available)`;
+                locationSelect.appendChild(option);
+            });
+        })
+        .catch(error => {
+            console.error('Error fetching locations:', error);
+        });
+    }
 
     // Keyboard navigation
     document.addEventListener('keydown', function(e) {
@@ -641,5 +850,19 @@
             hideRemoveModal();
         }
     });
+
+    // Auto-refresh stats every 30 seconds
+    setInterval(function() {
+        fetch('{% url "monitoring:inventory_stats_api" %}')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateDashboardStats(data.stats);
+            }
+        })
+        .catch(error => {
+            console.error('Error refreshing stats:', error);
+        });
+    }, 30000);
 </script>
 {% endblock %}

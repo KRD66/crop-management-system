@@ -43,18 +43,23 @@ urlpatterns = [
     # Analytics
     path('analytics/', views.analytics, name='analytics'),
     
-    # Inventory Management
-    path('inventory/', views.inventory, name='inventory'),
+    #inventory
+    path('inventory/', views.inventory_dashboard, name='inventory'),
+    path('dashboard/', views.dashboard, name='dashboard'),
+    path('inventory/', views.inventory_dashboard, name='inventory_dashboard'),
     path('inventory/add/', views.add_inventory, name='add_inventory'),
     path('inventory/remove/', views.remove_inventory, name='remove_inventory'),
-    path('inventory/locations/', views.get_inventory_locations, name='get_inventory_locations'),
-    path('inventory/summary/', views.inventory_summary, name='inventory_summary'),
-    path('inventory/bulk-update/', views.bulk_update_inventory, name='bulk_update_inventory'),
+    path('inventory/adjust/', views.adjust_inventory, name='adjust_inventory'),
+    path('inventory/stats/', views.inventory_stats_api, name='inventory_stats_api'),
+    path('inventory/locations/', views.get_crop_locations, name='get_crop_locations'),
+    path('inventory/history/', views.inventory_history, name='inventory_history'),
     path('inventory/export/', views.export_inventory, name='export_inventory'),
+    path('inventory/alerts/', views.low_stock_alert, name='low_stock_alert'),
     
+
     # Reports
     path('reports/', views.reports, name='reports'),
-    path('reports/generate/', views.generate_report, name='generate_report'),
+    
     
     # Notifications
     path('notifications/', views.notifications, name='notifications'),

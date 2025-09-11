@@ -21,8 +21,9 @@ import random
 from io import BytesIO
 from .forms import UserAddForm, FarmForm,HarvestForm
 from django.db.models import Sum
-from .models import Farm, HarvestRecord
-
+from .models import Farm, HarvestRecord,ReportTemplate, GeneratedReport, ReportActivityLog
+import os
+from django.views.decorators.http import require_POST
 
 # ReportLab imports for PDF generation
 from reportlab.pdfgen import canvas
@@ -1397,24 +1398,52 @@ def analytics(request):
 # ========================
 # INVENTORY MANAGEMENT VIEWS
 # ========================
+# monitoring/views.py
+
+from django.shortcuts import render, get_object_or_404, redirect
+from django.contrib.auth.decorators import login_required, permission_required
+from django.contrib import messages
+from django.http import JsonResponse, HttpResponse
+from django.views.decorators.http import require_POST, require_GET
+from django.views.decorators.csrf import csrf_exempt
+from django.db.models import Sum, Q, F, Count
+from django.core.paginator import Paginator
+from django.utils import timezone
+from django.db import transaction
+from decimal import Decimal
+from datetime import date, timedelta
+import json
+import csv
+
+from .models import InventoryItem, StorageLocation, CropType, InventoryTransaction
+from .forms import AddInventoryForm, RemoveInventoryForm, InventoryFilterForm, StorageLocationForm, CropTypeForm
+
 
 @login_required
-@admin_added_required
-def inventory(request):
-    """Main inventory management view with filtering and CRUD operations"""
-    # Initialize forms
-    add_form = AddInventoryForm(user=request.user)
-    remove_form = RemoveInventoryForm()
-    filter_form = InventoryFilterForm(request.GET or None)
-    bulk_form = BulkInventoryUpdateForm()
+def inventory_dashboard(request):
+    """Main inventory dashboard view"""
+    
+    # Check permissions - adjust this based on your permission system
+    user_profile = getattr(request.user, 'userprofile', None)
+    allowed_roles = ['admin', 'farm_manager', 'inventory_manager']
+    
+    if user_profile and hasattr(user_profile, 'role'):
+        if user_profile.role not in allowed_roles:
+            messages.error(request, "You don't have permission to access inventory management.")
+            return redirect('monitoring:dashboard')
+    
+    # Get filter form
+    filter_form = InventoryFilterForm(request.GET)
     
     # Base queryset
-    inventory_items = Inventory.objects.select_related('crop', 'managed_by').order_by('-date_stored')
+    inventory_items = InventoryItem.objects.select_related(
+        'crop_type', 'storage_location', 'added_by'
+    ).prefetch_related('transactions')
     
     # Apply filters
     if filter_form.is_valid():
-        if filter_form.cleaned_data.get('crop'):
-            inventory_items = inventory_items.filter(crop=filter_form.cleaned_data['crop'])
+        if filter_form.cleaned_data.get('crop_type'):
+            inventory_items = inventory_items.filter(crop_type=filter_form.cleaned_data['crop_type'])
         
         if filter_form.cleaned_data.get('storage_location'):
             inventory_items = inventory_items.filter(storage_location=filter_form.cleaned_data['storage_location'])
@@ -1422,820 +1451,666 @@ def inventory(request):
         if filter_form.cleaned_data.get('quality_grade'):
             inventory_items = inventory_items.filter(quality_grade=filter_form.cleaned_data['quality_grade'])
         
-        if filter_form.cleaned_data.get('date_from'):
-            inventory_items = inventory_items.filter(date_stored__gte=filter_form.cleaned_data['date_from'])
-        
-        if filter_form.cleaned_data.get('date_to'):
-            inventory_items = inventory_items.filter(date_stored__lte=filter_form.cleaned_data['date_to'])
-        
-        # Status filtering
-        status = filter_form.cleaned_data.get('status')
-        if status == 'expiring':
-            thirty_days = date.today() + timedelta(days=30)
-            inventory_items = inventory_items.filter(expiry_date__lte=thirty_days, expiry_date__gt=date.today())
-        elif status == 'expired':
-            inventory_items = inventory_items.filter(expiry_date__lt=date.today())
-        elif status == 'low_stock':
-            inventory_items = inventory_items.filter(quantity_tons__lt=10)
-        elif status == 'good':
-            thirty_days = date.today() + timedelta(days=30)
-            inventory_items = inventory_items.filter(
-                Q(expiry_date__gt=thirty_days) | Q(expiry_date__isnull=True),
-                quantity_tons__gte=10
-            )
+        if filter_form.cleaned_data.get('status'):
+            status = filter_form.cleaned_data['status']
+            if status == 'expiring':
+                # Items expiring within 30 days
+                expiry_threshold = date.today() + timedelta(days=30)
+                inventory_items = inventory_items.filter(
+                    expiry_date__lte=expiry_threshold,
+                    expiry_date__gte=date.today()
+                )
+            elif status == 'expired':
+                inventory_items = inventory_items.filter(expiry_date__lt=date.today())
     
-    # Calculate metrics
-    total_quantity = inventory_items.aggregate(total=Sum('quantity_tons'))['total'] or 0
-    total_value = inventory_items.aggregate(
-        total=Sum(F('quantity_tons') * F('unit_price'))
-    )['total'] or 0
+    # Get all items for status calculation and pagination
+    inventory_list = list(inventory_items)
     
-    # Status counts
-    thirty_days = date.today() + timedelta(days=30)
-    low_stock_count = inventory_items.filter(quantity_tons__lt=10).count()
-    expiring_count = inventory_items.filter(
-        expiry_date__lte=thirty_days,
-        expiry_date__gt=date.today()
-    ).count()
-    expired_count = inventory_items.filter(expiry_date__lt=date.today()).count()
+    # Filter low stock items if needed (requires status property calculation)
+    if filter_form.is_valid() and filter_form.cleaned_data.get('status') == 'low_stock':
+        inventory_list = [item for item in inventory_list if item.status == 'low_stock']
     
-    # Storage locations summary
-    storage_locations = inventory_items.values('storage_location').annotate(
-        total_quantity=Sum('quantity_tons'),
-        item_count=Count('id')
-    ).order_by('-total_quantity')
+    # Pagination
+    paginator = Paginator(inventory_list, 10)  # 10 items per page
+    page_number = request.GET.get('page', 1)
+    page_obj = paginator.get_page(page_number)
     
-    # Crop summary
-    crop_summary = inventory_items.values('crop__name').annotate(
-        total_quantity=Sum('quantity_tons'),
-        item_count=Count('id'),
-        avg_quality=models.Avg('quality_grade')
-    ).order_by('-total_quantity')
+    # Get dashboard statistics
+    stats = InventoryItem.objects.get_summary_stats()
+    
+    # Get recent transactions
+    recent_transactions = InventoryTransaction.objects.select_related(
+        'user', 'inventory_item__crop_type', 'inventory_item__storage_location'
+    )[:10]
+    
+    # Create forms
+    add_form = AddInventoryForm()
+    remove_form = RemoveInventoryForm()
+    
+    # Check permissions for template
+    can_manage_inventory = (
+        request.user.is_superuser or 
+        (user_profile and hasattr(user_profile, 'role') and user_profile.role in allowed_roles)
+    )
     
     context = {
-        'inventory_items': inventory_items[:50],
-        'total_items': inventory_items.count(),
-        'total_quantity': total_quantity,
-        'total_value': total_value,
-        'low_stock_count': low_stock_count,
-        'expiring_count': expiring_count,
-        'expired_count': expired_count,
-        'storage_locations': storage_locations,
-        'crop_summary': crop_summary,
+        'inventory_items': page_obj,
+        'stats': stats,
+        'recent_transactions': recent_transactions,
+        'filter_form': filter_form,
         'add_form': add_form,
         'remove_form': remove_form,
-        'filter_form': filter_form,
-        'bulk_form': bulk_form,
+        'storage_locations': StorageLocation.objects.filter(is_active=True),
+        'crop_types': CropType.objects.filter(is_active=True),
+        'perms': {'can_manage_inventory': can_manage_inventory}
     }
     
     return render(request, 'monitoring/inventory.html', context)
 
 
 @login_required
-@admin_added_required
+@require_POST
 def add_inventory(request):
-    """Add new inventory item"""
-    if request.method == 'POST':
-        form = AddInventoryForm(request.POST, user=request.user)
-        if form.is_valid():
-            try:
-                inventory_item = form.save()
-                messages.success(
-                    request, 
-                    f"Successfully added {inventory_item.quantity_tons} tons of {inventory_item.crop.name} to inventory."
-                )
-                return JsonResponse({
-                    'success': True,
-                    'message': 'Inventory added successfully',
-                    'redirect': True
-                })
-            except Exception as e:
-                messages.error(request, f"Error adding inventory: {str(e)}")
-                return JsonResponse({
-                    'success': False,
-                    'message': f"Error adding inventory: {str(e)}"
-                })
-        else:
-            return JsonResponse({
-                'success': False,
-                'message': 'Form validation failed',
-                'errors': form.errors
-            })
+    """Add new inventory item via AJAX"""
     
-    return redirect('monitoring:inventory')
-
-
-@login_required
-@admin_added_required
-def remove_inventory(request):
-    """Remove inventory items"""
-    if request.method == 'POST':
-        form = RemoveInventoryForm(request.POST)
-        if form.is_valid():
-            crop = form.cleaned_data['crop']
-            storage_location = form.cleaned_data['storage_location']
-            quantity_to_remove = form.cleaned_data['quantity_tons']
-            reason = form.cleaned_data.get('reason', '')
-            
-            try:
-                with transaction.atomic():
-                    inventory_items = Inventory.objects.filter(
-                        crop=crop,
-                        storage_location=storage_location,
-                        quantity_tons__gt=0
-                    ).order_by('date_stored')
+    # Check permissions
+    user_profile = getattr(request.user, 'userprofile', None)
+    allowed_roles = ['admin', 'farm_manager', 'inventory_manager']
+    
+    if user_profile and hasattr(user_profile, 'role'):
+        if user_profile.role not in allowed_roles:
+            return JsonResponse({'success': False, 'error': 'Permission denied'})
+    elif not request.user.is_superuser:
+        return JsonResponse({'success': False, 'error': 'Permission denied'})
+    
+    form = AddInventoryForm(request.POST)
+    
+    if form.is_valid():
+        try:
+            with transaction.atomic():
+                # Check if similar item exists (same crop, location, quality, close expiry date)
+                existing_item = InventoryItem.objects.filter(
+                    crop_type=form.cleaned_data['crop_type'],
+                    storage_location=form.cleaned_data['storage_location'],
+                    quality_grade=form.cleaned_data['quality_grade'],
+                    expiry_date=form.cleaned_data['expiry_date']
+                ).first()
+                
+                if existing_item:
+                    # Update existing item
+                    previous_quantity = existing_item.quantity
+                    existing_item.quantity += form.cleaned_data['quantity']
+                    existing_item.save()
                     
-                    if not inventory_items.exists():
-                        return JsonResponse({
-                            'success': False,
-                            'message': f"No inventory found for {crop.name} at {storage_location}"
-                        })
-                    
-                    total_available = inventory_items.aggregate(
-                        total=Sum('quantity_tons')
-                    )['total'] or 0
-                    
-                    if quantity_to_remove > total_available:
-                        return JsonResponse({
-                            'success': False,
-                            'message': f"Only {total_available} tons available, cannot remove {quantity_to_remove} tons"
-                        })
-                    
-                    remaining_to_remove = quantity_to_remove
-                    items_updated = []
-                    
-                    for item in inventory_items:
-                        if remaining_to_remove <= 0:
-                            break
-                        
-                        if item.quantity_tons <= remaining_to_remove:
-                            remaining_to_remove -= item.quantity_tons
-                            items_updated.append(f"Removed all {item.quantity_tons} tons from {item.batch_number or 'batch'}")
-                            item.delete()
-                        else:
-                            removed_amount = remaining_to_remove
-                            item.quantity_tons -= remaining_to_remove
-                            if hasattr(item, 'notes'):
-                                item.notes += f"\n[{date.today()}] Removed {removed_amount} tons. Reason: {reason}"
-                            item.save()
-                            items_updated.append(f"Removed {removed_amount} tons from {item.batch_number or 'batch'}")
-                            remaining_to_remove = 0
-                    
-                    messages.success(
-                        request,
-                        f"Successfully removed {quantity_to_remove} tons of {crop.name} from {storage_location}."
+                    # Create transaction record
+                    InventoryTransaction.objects.create(
+                        inventory_item=existing_item,
+                        user=request.user,
+                        action_type='ADD',
+                        quantity=form.cleaned_data['quantity'],
+                        previous_quantity=previous_quantity,
+                        new_quantity=existing_item.quantity,
+                        notes=f"Stock added to existing batch at {existing_item.storage_location.name}"
                     )
                     
-                    return JsonResponse({
-                        'success': True,
-                        'message': f"Successfully removed {quantity_to_remove} tons",
-                        'details': items_updated,
-                        'redirect': True
-                    })
+                    inventory_item = existing_item
+                else:
+                    # Create new inventory item
+                    inventory_item = form.save(commit=False)
+                    inventory_item.added_by = request.user
+                    inventory_item.save()
                     
-            except Exception as e:
+                    # Create transaction record
+                    InventoryTransaction.objects.create(
+                        inventory_item=inventory_item,
+                        user=request.user,
+                        action_type='ADD',
+                        quantity=inventory_item.quantity,
+                        previous_quantity=0,
+                        new_quantity=inventory_item.quantity,
+                        notes=f"Initial stock added to {inventory_item.storage_location.name}"
+                    )
+                
                 return JsonResponse({
-                    'success': False,
-                    'message': f"Error removing inventory: {str(e)}"
+                    'success': True,
+                    'message': f'Successfully added {form.cleaned_data["quantity"]}t of {inventory_item.crop_type.display_name} to inventory',
+                    'stats': InventoryItem.objects.get_summary_stats()
                 })
-        else:
-            return JsonResponse({
-                'success': False,
-                'message': 'Form validation failed',
-                'errors': form.errors
-            })
+                
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
     
-    return redirect('monitoring:inventory')
+    else:
+        errors = {}
+        for field, field_errors in form.errors.items():
+            errors[field] = field_errors[0]
+        
+        return JsonResponse({'success': False, 'errors': errors})
 
 
 @login_required
-@admin_added_required
-def get_inventory_locations(request):
-    """AJAX endpoint to get available storage locations for a specific crop"""
-    crop_id = request.GET.get('crop_id')
-    if crop_id:
-        locations = Inventory.objects.filter(
-            crop_id=crop_id,
-            quantity_tons__gt=0
-        ).values('storage_location').annotate(
-            total_quantity=Sum('quantity_tons')
-        ).order_by('storage_location')
+@require_POST
+def remove_inventory(request):
+    """Remove inventory items via AJAX using FIFO method"""
+    
+    # Check permissions
+    user_profile = getattr(request.user, 'userprofile', None)
+    allowed_roles = ['admin', 'farm_manager', 'inventory_manager']
+    
+    if user_profile and hasattr(user_profile, 'role'):
+        if user_profile.role not in allowed_roles:
+            return JsonResponse({'success': False, 'error': 'Permission denied'})
+    elif not request.user.is_superuser:
+        return JsonResponse({'success': False, 'error': 'Permission denied'})
+    
+    form = RemoveInventoryForm(request.POST)
+    
+    if form.is_valid():
+        try:
+            with transaction.atomic():
+                crop_type = form.cleaned_data['crop_type']
+                storage_location = form.cleaned_data['storage_location']
+                quantity_to_remove = form.cleaned_data['quantity']
+                notes = form.cleaned_data.get('notes', '')
+                
+                # Get available inventory items (FIFO - oldest first)
+                available_items = InventoryItem.objects.filter(
+                    crop_type=crop_type,
+                    storage_location=storage_location,
+                    quantity__gt=0
+                ).order_by('date_stored', 'created_at')
+                
+                if not available_items.exists():
+                    return JsonResponse({
+                        'success': False, 
+                        'error': f'No inventory available for {crop_type.display_name} at {storage_location.name}'
+                    })
+                
+                # Check total available quantity
+                total_available = sum(item.quantity for item in available_items)
+                if total_available < quantity_to_remove:
+                    return JsonResponse({
+                        'success': False,
+                        'error': f'Insufficient stock. Only {total_available}t available, but {quantity_to_remove}t requested.'
+                    })
+                
+                remaining_to_remove = quantity_to_remove
+                transactions = []
+                items_to_delete = []
+                
+                # Remove inventory using FIFO method
+                for item in available_items:
+                    if remaining_to_remove <= 0:
+                        break
+                    
+                    previous_quantity = item.quantity
+                    
+                    if item.quantity <= remaining_to_remove:
+                        # Remove entire item
+                        quantity_removed = item.quantity
+                        remaining_to_remove -= quantity_removed
+                        item.quantity = 0
+                        items_to_delete.append(item.id)
+                    else:
+                        # Partially remove from item
+                        quantity_removed = remaining_to_remove
+                        item.quantity -= remaining_to_remove
+                        remaining_to_remove = 0
+                    
+                    item.save()
+                    
+                    # Create transaction record
+                    transaction_obj = InventoryTransaction.objects.create(
+                        inventory_item=item,
+                        user=request.user,
+                        action_type='REMOVE',
+                        quantity=-quantity_removed,  # Negative for removal
+                        previous_quantity=previous_quantity,
+                        new_quantity=item.quantity,
+                        notes=notes or f"Stock removed from {storage_location.name}"
+                    )
+                    transactions.append(transaction_obj)
+                
+                # Delete items with zero quantity
+                if items_to_delete:
+                    InventoryItem.objects.filter(id__in=items_to_delete).delete()
+                
+                total_removed = quantity_to_remove - remaining_to_remove
+                
+                return JsonResponse({
+                    'success': True,
+                    'message': f'Successfully removed {total_removed}t of {crop_type.display_name} from {storage_location.name}',
+                    'stats': InventoryItem.objects.get_summary_stats()
+                })
+                
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+    
+    else:
+        errors = {}
+        for field, field_errors in form.errors.items():
+            errors[field] = field_errors[0]
         
-        location_data = [
+        return JsonResponse({'success': False, 'errors': errors})
+
+
+@login_required
+def inventory_stats_api(request):
+    """API endpoint for real-time inventory statistics"""
+    
+    # Check permissions
+    user_profile = getattr(request.user, 'userprofile', None)
+    allowed_roles = ['admin', 'farm_manager', 'inventory_manager']
+    
+    if user_profile and hasattr(user_profile, 'role'):
+        if user_profile.role not in allowed_roles:
+            return JsonResponse({'error': 'Permission denied'}, status=403)
+    elif not request.user.is_superuser:
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    
+    try:
+        stats = InventoryItem.objects.get_summary_stats()
+        
+        # Add more detailed stats
+        crop_breakdown = {}
+        location_breakdown = {}
+        
+        inventory_items = InventoryItem.objects.select_related('crop_type', 'storage_location')
+        
+        for item in inventory_items:
+            # Crop breakdown
+            crop_name = item.crop_type.display_name
+            if crop_name not in crop_breakdown:
+                crop_breakdown[crop_name] = {
+                    'quantity': 0,
+                    'locations': set(),
+                    'statuses': {'good': 0, 'expiring': 0, 'low_stock': 0, 'expired': 0}
+                }
+            
+            crop_breakdown[crop_name]['quantity'] += float(item.quantity)
+            crop_breakdown[crop_name]['locations'].add(item.storage_location.name)
+            crop_breakdown[crop_name]['statuses'][item.status] += 1
+            
+            # Location breakdown
+            location_name = item.storage_location.name
+            if location_name not in location_breakdown:
+                location_breakdown[location_name] = {
+                    'quantity': 0,
+                    'crops': set(),
+                    'capacity': float(item.storage_location.capacity_tons),
+                    'usage_percentage': 0
+                }
+            
+            location_breakdown[location_name]['quantity'] += float(item.quantity)
+            location_breakdown[location_name]['crops'].add(item.crop_type.display_name)
+        
+        # Convert sets to lists for JSON serialization
+        for crop_data in crop_breakdown.values():
+            crop_data['locations'] = list(crop_data['locations'])
+        
+        for location_data in location_breakdown.values():
+            location_data['crops'] = list(location_data['crops'])
+            if location_data['capacity'] > 0:
+                location_data['usage_percentage'] = (location_data['quantity'] / location_data['capacity']) * 100
+        
+        return JsonResponse({
+            'success': True,
+            'stats': stats,
+            'crop_breakdown': crop_breakdown,
+            'location_breakdown': location_breakdown
+        })
+        
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@login_required
+def get_crop_locations(request):
+    """Get available locations for a specific crop type (for removal form)"""
+    
+    crop_type_id = request.GET.get('crop_type_id')
+    
+    if not crop_type_id:
+        return JsonResponse({'locations': []})
+    
+    try:
+        # Get locations that have this crop in stock
+        locations_data = []
+        
+        inventory_items = InventoryItem.objects.filter(
+            crop_type_id=crop_type_id,
+            quantity__gt=0
+        ).select_related('storage_location').values(
+            'storage_location__id',
+            'storage_location__name'
+        ).annotate(
+            available_quantity=Sum('quantity')
+        )
+        
+        locations_data = [
             {
-                'value': loc['storage_location'],
-                'label': f"{loc['storage_location']} ({loc['total_quantity']} tons available)"
+                'id': item['storage_location__id'],
+                'name': item['storage_location__name'],
+                'available_quantity': float(item['available_quantity'])
             }
-            for loc in locations
+            for item in inventory_items
         ]
         
-        return JsonResponse({'locations': location_data})
-    
-    return JsonResponse({'locations': []})
+        return JsonResponse({'locations': locations_data})
+        
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 @login_required
-@admin_added_required
-def inventory_summary(request):
-    """Get inventory summary data for dashboard"""
-    total_quantity = Inventory.objects.aggregate(total=Sum('quantity_tons'))['total'] or 0
-    total_items = Inventory.objects.count()
-    total_value = Inventory.objects.aggregate(
-        total=Sum(F('quantity_tons') * F('unit_price'))
-    )['total'] or 0
+def inventory_history(request):
+    """View for complete inventory transaction history"""
     
-    thirty_days = date.today() + timedelta(days=30)
-    low_stock_count = Inventory.objects.filter(quantity_tons__lt=10).count()
-    expiring_count = Inventory.objects.filter(
-        expiry_date__lte=thirty_days,
-        expiry_date__gt=date.today()
-    ).count()
+    # Check permissions
+    user_profile = getattr(request.user, 'userprofile', None)
+    allowed_roles = ['admin', 'farm_manager', 'inventory_manager']
     
-    top_crops = Inventory.objects.values('crop__name').annotate(
-        total_quantity=Sum('quantity_tons')
-    ).order_by('-total_quantity')[:5]
+    if user_profile and hasattr(user_profile, 'role'):
+        if user_profile.role not in allowed_roles:
+            messages.error(request, "You don't have permission to access inventory history.")
+            return redirect('monitoring:dashboard')
+    elif not request.user.is_superuser:
+        messages.error(request, "You don't have permission to access inventory history.")
+        return redirect('monitoring:dashboard')
     
-    storage_utilization = Inventory.objects.values('storage_location').annotate(
-        total_quantity=Sum('quantity_tons'),
-        item_count=Count('id')
-    ).order_by('-total_quantity')
+    # Get all transactions with filters
+    transactions = InventoryTransaction.objects.select_related(
+        'user', 'inventory_item__crop_type', 'inventory_item__storage_location'
+    ).order_by('-timestamp')
     
-    data = {
-        'total_quantity': float(total_quantity),
-        'total_items': total_items,
-        'total_value': float(total_value) if total_value else 0,
-        'low_stock_count': low_stock_count,
-        'expiring_count': expiring_count,
-        'top_crops': list(top_crops),
-        'storage_utilization': list(storage_utilization)
+    # Apply filters if provided
+    action_filter = request.GET.get('action')
+    crop_filter = request.GET.get('crop')
+    location_filter = request.GET.get('location')
+    date_from = request.GET.get('date_from')
+    date_to = request.GET.get('date_to')
+    
+    if action_filter:
+        transactions = transactions.filter(action_type=action_filter)
+    
+    if crop_filter:
+        transactions = transactions.filter(inventory_item__crop_type__name=crop_filter)
+    
+    if location_filter:
+        transactions = transactions.filter(inventory_item__storage_location_id=location_filter)
+    
+    if date_from:
+        try:
+            from datetime import datetime
+            date_from_obj = datetime.strptime(date_from, '%Y-%m-%d').date()
+            transactions = transactions.filter(timestamp__date__gte=date_from_obj)
+        except ValueError:
+            pass
+    
+    if date_to:
+        try:
+            from datetime import datetime
+            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d').date()
+            transactions = transactions.filter(timestamp__date__lte=date_to_obj)
+        except ValueError:
+            pass
+    
+    # Pagination
+    paginator = Paginator(transactions, 25)
+    page_number = request.GET.get('page', 1)
+    page_obj = paginator.get_page(page_number)
+    
+    context = {
+        'transactions': page_obj,
+        'crop_types': CropType.objects.filter(is_active=True),
+        'storage_locations': StorageLocation.objects.filter(is_active=True),
+        'filters': {
+            'action': action_filter,
+            'crop': crop_filter,
+            'location': location_filter,
+            'date_from': date_from,
+            'date_to': date_to,
+        }
     }
     
-    return JsonResponse(data)
+    return render(request, 'monitoring/inventory_history.html', context)
 
 
 @login_required
-@admin_added_required
-def bulk_update_inventory(request):
-    """Bulk update inventory items"""
-    if request.method == 'POST':
-        form = BulkInventoryUpdateForm(request.POST)
-        if form.is_valid():
-            action = form.cleaned_data['action']
-            selected_items = json.loads(form.cleaned_data['selected_items'])
-            
-            if not selected_items:
-                return JsonResponse({
-                    'success': False,
-                    'message': 'No items selected'
-                })
-            
-            try:
-                with transaction.atomic():
-                    items = Inventory.objects.filter(id__in=selected_items)
-                    count = items.count()
-                    
-                    if action == 'update_location':
-                        new_location = form.cleaned_data['new_storage_location']
-                        items.update(storage_location=new_location, updated_at=timezone.now())
-                        message = f"Updated storage location for {count} items to {new_location}"
-                    
-                    elif action == 'update_condition':
-                        new_condition = form.cleaned_data['new_storage_condition']
-                        items.update(storage_condition=new_condition, updated_at=timezone.now())
-                        message = f"Updated storage condition for {count} items"
-                    
-                    elif action == 'mark_expired':
-                        items.update(expiry_date=date.today() - timedelta(days=1), updated_at=timezone.now())
-                        message = f"Marked {count} items as expired"
-                    
-                    elif action == 'reserve':
-                        items.update(is_reserved=True, updated_at=timezone.now())
-                        message = f"Reserved {count} items"
-                    
-                    elif action == 'unreserve':
-                        items.update(is_reserved=False, updated_at=timezone.now())
-                        message = f"Unreserved {count} items"
-                    
-                    messages.success(request, message)
-                    return JsonResponse({
-                        'success': True,
-                        'message': message,
-                        'redirect': True
-                    })
-                    
-            except Exception as e:
-                return JsonResponse({
-                    'success': False,
-                    'message': f"Error performing bulk update: {str(e)}"
-                })
-        else:
-            return JsonResponse({
-                'success': False,
-                'message': 'Form validation failed',
-                'errors': form.errors
-            })
-    
-    return redirect('monitoring:inventory')
-
-
-@login_required
-@admin_added_required
 def export_inventory(request):
-    """Export inventory data to CSV"""
+    """Export current inventory to CSV"""
+    
+    # Check permissions
+    user_profile = getattr(request.user, 'userprofile', None)
+    allowed_roles = ['admin', 'farm_manager', 'inventory_manager']
+    
+    if user_profile and hasattr(user_profile, 'role'):
+        if user_profile.role not in allowed_roles:
+            return JsonResponse({'error': 'Permission denied'}, status=403)
+    elif not request.user.is_superuser:
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    
+    # Create HTTP response with CSV content type
     response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = 'attachment; filename="inventory_export.csv"'
+    response['Content-Disposition'] = f'attachment; filename="inventory_export_{timezone.now().strftime("%Y%m%d_%H%M%S")}.csv"'
     
     writer = csv.writer(response)
+    
+    # Write header
     writer.writerow([
-        'Crop', 'Quantity (tons)', 'Storage Location', 'Quality Grade',
-        'Date Stored', 'Expiry Date', 'Storage Condition', 'Batch Number',
-        'Unit Price', 'Total Value', 'Managed By', 'Status'
+        'Crop Type',
+        'Storage Location',
+        'Quantity (tons)',
+        'Quality Grade',
+        'Date Stored',
+        'Expiry Date',
+        'Days Until Expiry',
+        'Status',
+        'Added By',
+        'Created At'
     ])
     
-    for item in Inventory.objects.select_related('crop', 'managed_by'):
-        status = 'Good'
-        if hasattr(item, 'is_expired') and item.is_expired:
-            status = 'Expired'
-        elif hasattr(item, 'days_until_expiry') and item.days_until_expiry and item.days_until_expiry <= 30:
-            status = 'Expiring Soon'
-        elif hasattr(item, 'is_low_stock') and item.is_low_stock:
-            status = 'Low Stock'
-        
+    # Write data
+    inventory_items = InventoryItem.objects.select_related(
+        'crop_type', 'storage_location', 'added_by'
+    ).order_by('crop_type__display_name', 'storage_location__name', 'date_stored')
+    
+    for item in inventory_items:
         writer.writerow([
-            item.crop.name,
-            item.quantity_tons,
-            item.storage_location,
-            item.get_quality_grade_display() if hasattr(item, 'get_quality_grade_display') else item.quality_grade,
-            item.date_stored,
-            item.expiry_date or '',
-            item.get_storage_condition_display() if hasattr(item, 'get_storage_condition_display') else getattr(item, 'storage_condition', ''),
-            getattr(item, 'batch_number', '') or '',
-            getattr(item, 'unit_price', '') or '',
-            getattr(item, 'total_value', '') or '',
-            item.managed_by.get_full_name() or item.managed_by.username,
-            status
+            item.crop_type.display_name,
+            item.storage_location.name,
+            float(item.quantity),
+            item.get_quality_grade_display(),
+            item.date_stored.strftime('%Y-%m-%d'),
+            item.expiry_date.strftime('%Y-%m-%d'),
+            item.days_until_expiry,
+            item.status.title(),
+            item.added_by.get_full_name() if item.added_by else 'Unknown',
+            item.created_at.strftime('%Y-%m-%d %H:%M:%S')
         ])
     
     return response
 
+
+@login_required
+def dashboard(request):
+    """Main dashboard view - add this if it doesn't exist"""
+    
+    # Basic dashboard context
+    context = {
+        'user': request.user,
+        'current_date': timezone.now().date(),
+    }
+    
+    return render(request, 'monitoring/dashboard.html', context)
+
+
+# Additional utility views that might be needed
+
+@login_required
+@require_POST
+def adjust_inventory(request):
+    """Adjust inventory quantity (for corrections)"""
+    
+    # Check permissions
+    user_profile = getattr(request.user, 'userprofile', None)
+    allowed_roles = ['admin', 'farm_manager']  # More restrictive for adjustments
+    
+    if user_profile and hasattr(user_profile, 'role'):
+        if user_profile.role not in allowed_roles:
+            return JsonResponse({'success': False, 'error': 'Permission denied'})
+    elif not request.user.is_superuser:
+        return JsonResponse({'success': False, 'error': 'Permission denied'})
+    
+    try:
+        item_id = request.POST.get('item_id')
+        new_quantity = Decimal(request.POST.get('new_quantity', '0'))
+        notes = request.POST.get('notes', '')
+        
+        inventory_item = get_object_or_404(InventoryItem, id=item_id)
+        previous_quantity = inventory_item.quantity
+        
+        with transaction.atomic():
+            inventory_item.quantity = new_quantity
+            inventory_item.save()
+            
+            # Create transaction record
+            InventoryTransaction.objects.create(
+                inventory_item=inventory_item,
+                user=request.user,
+                action_type='ADJUST',
+                quantity=new_quantity - previous_quantity,
+                previous_quantity=previous_quantity,
+                new_quantity=new_quantity,
+                notes=notes or f"Quantity adjusted from {previous_quantity}t to {new_quantity}t"
+            )
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Successfully adjusted {inventory_item.crop_type.display_name} quantity to {new_quantity}t',
+            'stats': InventoryItem.objects.get_summary_stats()
+        })
+        
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+
+@login_required
+def low_stock_alert(request):
+    """Get low stock items for alerts"""
+    
+    # Check permissions
+    user_profile = getattr(request.user, 'userprofile', None)
+    allowed_roles = ['admin', 'farm_manager', 'inventory_manager']
+    
+    if user_profile and hasattr(user_profile, 'role'):
+        if user_profile.role not in allowed_roles:
+            return JsonResponse({'error': 'Permission denied'}, status=403)
+    elif not request.user.is_superuser:
+        return JsonResponse({'error': 'Permission denied'}, status=403)
+    
+    try:
+        low_stock_items = []
+        inventory_items = InventoryItem.objects.select_related('crop_type', 'storage_location')
+        
+        for item in inventory_items:
+            if item.status == 'low_stock':
+                low_stock_items.append({
+                    'crop_type': item.crop_type.display_name,
+                    'location': item.storage_location.name,
+                    'current_quantity': float(item.quantity),
+                    'threshold': float(item.crop_type.minimum_stock_threshold),
+                    'expiry_date': item.expiry_date.strftime('%Y-%m-%d'),
+                    'days_until_expiry': item.days_until_expiry
+                })
+        
+        return JsonResponse({
+            'success': True,
+            'low_stock_items': low_stock_items,
+            'count': len(low_stock_items)
+        })
+        
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
 
 # ========================
 # REPORTING VIEWS
 # ========================
 
 @login_required
-@admin_added_required
 def reports(request):
-    """Reports view - generate various reports"""
-    current_month = timezone.now().replace(day=1)
-    last_month = (current_month - timedelta(days=1)).replace(day=1)
-    
-    current_month_harvests = HarvestRecord.objects.filter(
-        harvest_date__gte=current_month
-    ).aggregate(
-        count=Count('id'),
-        total=Sum('quantity_tons')
-    )
-    
-    last_month_harvests = HarvestRecord.objects.filter(
-        harvest_date__gte=last_month,
-        harvest_date__lt=current_month
-    ).aggregate(
-        count=Count('id'),
-        total=Sum('quantity_tons')
-    )
-    
+    """Main reports page – handles list, generate, and recent reports"""
+    templates = ReportTemplate.objects.all()
+    recent_reports = GeneratedReport.objects.order_by("-generated_at")[:5]
+
+    if request.method == "POST":
+        template_id = request.POST.get("template_id")
+        from_date = request.POST.get("from_date")
+        to_date = request.POST.get("to_date")
+        export_format = request.POST.get("export_format", "pdf")
+
+        if not template_id:
+            messages.error(request, "Please select a report template.")
+        else:
+            template = get_object_or_404(ReportTemplate, id=template_id)
+
+            # Simulate generated file (replace with real logic later)
+            filename = f"{template.report_type}_{timezone.now().strftime('%Y%m%d%H%M%S')}.{export_format}"
+            file_path = os.path.join("media/reports", filename)
+
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, "w") as f:
+                f.write(f"Report: {template.title}\n")
+                f.write(f"From: {from_date} To: {to_date}\n")
+                f.write("Sample report content here...\n")
+
+            report = GeneratedReport.objects.create(
+                template=template,
+                name=template.title,
+                report_type=template.report_type,
+                generated_by=request.user,
+                from_date=from_date,
+                to_date=to_date,
+                export_format=export_format,
+                file=file_path.replace("media/", ""),  # relative path
+            )
+
+            ReportActivityLog.objects.create(
+                user=request.user,
+                report=report,
+                action="generate",
+            )
+
+            messages.success(request, f"{template.title} generated successfully!")
+
+            # Refresh recent reports after generation
+            recent_reports = GeneratedReport.objects.order_by("-generated_at")[:5]
+
     context = {
-        'current_month_data': current_month_harvests,
-        'last_month_data': last_month_harvests,
-        'current_month_name': current_month.strftime('%B %Y'),
-        'last_month_name': last_month.strftime('%B %Y')
+        "templates": templates,
+        "recent_reports": recent_reports,
     }
-    
-    return render(request, 'monitoring/reports.html', context)
+    return render(request, "monitoring/reports.html", context)
 
 
 @login_required
-@admin_added_required
-def generate_report(request):
-    """Generate custom reports based on user input"""
-    if request.method != 'POST':
-        return JsonResponse({'success': False, 'error': 'Invalid request method'})
-    
-    try:
-        report_type = request.POST.get('report_type')
-        from_date = request.POST.get('from_date')
-        to_date = request.POST.get('to_date')
-        export_format = request.POST.get('export_format')
-        
-        if not all([report_type, from_date, to_date, export_format]):
-            return JsonResponse({'success': False, 'error': 'Missing required fields'})
-        
-        from_date = datetime.strptime(from_date, '%Y-%m-%d').date()
-        to_date = datetime.strptime(to_date, '%Y-%m-%d').date()
-        
-        if from_date > to_date:
-            return JsonResponse({'success': False, 'error': 'Invalid date range'})
-        
-        if report_type == 'monthly_harvest_summary':
-            return generate_harvest_summary_report(from_date, to_date, export_format)
-        elif report_type == 'yield_performance_report':
-            return generate_yield_performance_report(from_date, to_date, export_format)
-        elif report_type == 'inventory_status_report':
-            return generate_inventory_status_report(from_date, to_date, export_format)
-        elif report_type == 'farm_productivity_analysis':
-            return generate_farm_productivity_report(from_date, to_date, export_format)
-        else:
-            return JsonResponse({'success': False, 'error': 'Invalid report type'})
-            
-    except Exception as e:
-        return JsonResponse({'success': False, 'error': str(e)})
+def download_report(request, report_id):
+    """Download previously generated report"""
+    report = get_object_or_404(GeneratedReport, id=report_id)
 
+    file_path = os.path.join("media", str(report.file))
+    if not os.path.exists(file_path):
+        messages.error(request, "Report file not found.")
+        return redirect("reports")
 
-def generate_harvest_summary_report(from_date, to_date, export_format):
-    """Generate monthly harvest summary report"""
-    harvests = HarvestRecord.objects.filter(
-        harvest_date__range=[from_date, to_date]
-    ).select_related('field', 'field__farm', 'field__crop', 'harvested_by')
-    
-    total_quantity = harvests.aggregate(total=Sum('quantity_tons'))['total'] or Decimal('0')
-    total_harvests = harvests.count()
-    
-    farm_data = {}
-    for harvest in harvests:
-        farm_name = harvest.field.farm.name
-        if farm_name not in farm_data:
-            farm_data[farm_name] = {
-                'total_quantity': Decimal('0'),
-                'harvest_count': 0,
-                'fields': set(),
-                'crops': set()
-            }
-        farm_data[farm_name]['total_quantity'] += harvest.quantity_tons
-        farm_data[farm_name]['harvest_count'] += 1
-        farm_data[farm_name]['fields'].add(harvest.field.name)
-        farm_data[farm_name]['crops'].add(harvest.field.crop.name)
-    
-    if export_format == 'pdf':
-        return generate_pdf_harvest_report(farm_data, total_quantity, total_harvests, from_date, to_date)
-    elif export_format == 'excel':
-        return generate_excel_harvest_report(farm_data, harvests, from_date, to_date)
-    elif export_format == 'csv':
-        return generate_csv_harvest_report(harvests, from_date, to_date)
+    ReportActivityLog.objects.create(
+        user=request.user,
+        report=report,
+        action="download",
+    )
 
-
-def generate_csv_harvest_report(harvests, from_date, to_date):
-    """Generate CSV harvest summary report"""
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = f'attachment; filename="harvest_summary_{from_date}_{to_date}.csv"'
-    
-    writer = csv.writer(response)
-    writer.writerow(['Date', 'Farm', 'Field', 'Crop', 'Quantity (tons)', 'Quality Grade', 'Harvested By', 'Weather Conditions'])
-    
-    for harvest in harvests:
-        writer.writerow([
-            harvest.harvest_date.strftime('%Y-%m-%d'),
-            harvest.field.farm.name,
-            harvest.field.name,
-            harvest.field.crop.name,
-            harvest.quantity_tons,
-            harvest.quality_grade,
-            harvest.harvested_by.get_full_name(),
-            getattr(harvest, 'weather_conditions', 'N/A') or 'N/A'
-        ])
-    
-    return response
-
-
-def generate_pdf_harvest_report(farm_data, total_quantity, total_harvests, from_date, to_date):
-    """Generate PDF harvest summary report"""
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
-    styles = getSampleStyleSheet()
-    story = []
-    
-    # Title
-    title = Paragraph(f"Harvest Summary Report", styles['Title'])
-    story.append(title)
-    story.append(Spacer(1, 20))
-    
-    # Date range
-    date_range = Paragraph(f"Period: {from_date.strftime('%B %d, %Y')} - {to_date.strftime('%B %d, %Y')}", styles['Normal'])
-    story.append(date_range)
-    story.append(Spacer(1, 20))
-    
-    # Summary statistics
-    summary_data = [
-        ['Metric', 'Value'],
-        ['Total Harvests', str(total_harvests)],
-        ['Total Quantity', f"{total_quantity} tons"],
-        ['Number of Farms', str(len(farm_data))],
-    ]
-    
-    summary_table = Table(summary_data)
-    summary_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 14),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    
-    story.append(summary_table)
-    story.append(Spacer(1, 30))
-    
-    # Farm breakdown
-    if farm_data:
-        farm_title = Paragraph("Farm Breakdown", styles['Heading2'])
-        story.append(farm_title)
-        story.append(Spacer(1, 12))
-        
-        farm_table_data = [['Farm Name', 'Total Quantity (tons)', 'Harvest Count', 'Fields', 'Crops']]
-        
-        for farm_name, data in farm_data.items():
-            farm_table_data.append([
-                farm_name,
-                str(data['total_quantity']),
-                str(data['harvest_count']),
-                str(len(data['fields'])),
-                str(len(data['crops']))
-            ])
-        
-        farm_table = Table(farm_table_data)
-        farm_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-        
-        story.append(farm_table)
-    
-    # Build PDF
-    doc.build(story)
-    buffer.seek(0)
-    
-    response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
-    response['Content-Disposition'] = f'attachment; filename="harvest_summary_{from_date}_{to_date}.pdf"'
-    return response
-
-
-def generate_excel_harvest_report(farm_data, harvests, from_date, to_date):
-    """Generate Excel harvest summary report"""
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Harvest Summary"
-    
-    # Header style
-    header_font = Font(bold=True, color="FFFFFF")
-    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
-    center_alignment = Alignment(horizontal="center")
-    
-    # Title and date range
-    ws['A1'] = "Harvest Summary Report"
-    ws['A1'].font = Font(bold=True, size=16)
-    ws['A2'] = f"Period: {from_date.strftime('%B %d, %Y')} - {to_date.strftime('%B %d, %Y')}"
-    
-    # Farm summary headers
-    headers = ['Farm Name', 'Total Quantity (tons)', 'Harvest Count', 'Number of Fields', 'Number of Crops']
-    for col, header in enumerate(headers, 1):
-        cell = ws.cell(row=4, column=col)
-        cell.value = header
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = center_alignment
-    
-    # Farm data
-    row = 5
-    for farm_name, data in farm_data.items():
-        ws.cell(row=row, column=1).value = farm_name
-        ws.cell(row=row, column=2).value = float(data['total_quantity'])
-        ws.cell(row=row, column=3).value = data['harvest_count']
-        ws.cell(row=row, column=4).value = len(data['fields'])
-        ws.cell(row=row, column=5).value = len(data['crops'])
-        row += 1
-    
-    # Individual harvests sheet
-    ws2 = wb.create_sheet("Individual Harvests")
-    harvest_headers = ['Date', 'Farm', 'Field', 'Crop', 'Quantity (tons)', 'Quality Grade', 'Harvested By']
-    
-    for col, header in enumerate(harvest_headers, 1):
-        cell = ws2.cell(row=1, column=col)
-        cell.value = header
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = center_alignment
-    
-    row = 2
-    for harvest in harvests:
-        ws2.cell(row=row, column=1).value = harvest.harvest_date.strftime('%Y-%m-%d')
-        ws2.cell(row=row, column=2).value = harvest.field.farm.name
-        ws2.cell(row=row, column=3).value = harvest.field.name
-        ws2.cell(row=row, column=4).value = harvest.field.crop.name
-        ws2.cell(row=row, column=5).value = float(harvest.quantity_tons)
-        ws2.cell(row=row, column=6).value = harvest.quality_grade
-        ws2.cell(row=row, column=7).value = harvest.harvested_by.get_full_name()
-        row += 1
-    
-    # Auto-adjust column widths
-    for ws in wb.worksheets:
-        for column in ws.columns:
-            max_length = 0
-            column_letter = column[0].column_letter
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = min(max_length + 2, 50)
-            ws.column_dimensions[column_letter].width = adjusted_width
-    
-    # Save to buffer
-    buffer = BytesIO()
-    wb.save(buffer)
-    buffer.seek(0)
-    
-    response = HttpResponse(buffer.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    response['Content-Disposition'] = f'attachment; filename="harvest_summary_{from_date}_{to_date}.xlsx"'
-    return response
-
-
-def generate_yield_performance_report(from_date, to_date, export_format):
-    """Generate yield performance report comparing actual vs expected yields"""
-    harvests = HarvestRecord.objects.filter(
-        harvest_date__range=[from_date, to_date]
-    ).select_related('field', 'field__farm', 'field__crop')
-    
-    performance_data = []
-    for harvest in harvests:
-        expected_yield = getattr(harvest.field, 'expected_yield_total', 0) or 0
-        actual_yield = harvest.quantity_tons
-        performance_percentage = (actual_yield / expected_yield * 100) if expected_yield > 0 else 0
-        
-        performance_data.append({
-            'farm': harvest.field.farm.name,
-            'field': harvest.field.name,
-            'crop': harvest.field.crop.name,
-            'expected_yield': expected_yield,
-            'actual_yield': actual_yield,
-            'performance_percentage': performance_percentage,
-            'harvest_date': harvest.harvest_date
-        })
-    
-    if export_format == 'csv':
-        return generate_csv_yield_report(performance_data, from_date, to_date)
-    
-    return JsonResponse({'success': True, 'message': 'Report generated successfully'})
-
-
-def generate_csv_yield_report(performance_data, from_date, to_date):
-    """Generate CSV yield performance report"""
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = f'attachment; filename="yield_performance_{from_date}_{to_date}.csv"'
-    
-    writer = csv.writer(response)
-    writer.writerow([
-        'Farm', 'Field', 'Crop', 'Expected Yield (tons)', 'Actual Yield (tons)', 
-        'Performance (%)', 'Harvest Date'
-    ])
-    
-    for data in performance_data:
-        writer.writerow([
-            data['farm'],
-            data['field'],
-            data['crop'],
-            data['expected_yield'],
-            data['actual_yield'],
-            round(data['performance_percentage'], 2),
-            data['harvest_date'].strftime('%Y-%m-%d')
-        ])
-    
-    return response
-
-
-def generate_inventory_status_report(from_date, to_date, export_format):
-    """Generate inventory status report"""
-    inventory_items = Inventory.objects.filter(
-        date_stored__range=[from_date, to_date]
-    ).select_related('crop', 'managed_by')
-    
-    if export_format == 'csv':
-        return generate_csv_inventory_report(inventory_items, from_date, to_date)
-    
-    return JsonResponse({'success': True, 'message': 'Report generated successfully'})
-
-
-def generate_csv_inventory_report(inventory_items, from_date, to_date):
-    """Generate CSV inventory status report"""
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = f'attachment; filename="inventory_status_{from_date}_{to_date}.csv"'
-    
-    writer = csv.writer(response)
-    writer.writerow([
-        'Crop', 'Quantity (tons)', 'Storage Location', 'Storage Condition', 
-        'Quality Grade', 'Date Stored', 'Expiry Date', 'Days in Storage', 
-        'Unit Price', 'Total Value', 'Status'
-    ])
-    
-    for item in inventory_items:
-        status = []
-        if hasattr(item, 'is_reserved') and item.is_reserved:
-            status.append('Reserved')
-        if hasattr(item, 'is_expired') and item.is_expired:
-            status.append('Expired')
-        elif hasattr(item, 'expiry_date') and item.expiry_date and item.expiry_date < date.today():
-            status.append('Expired')
-        if hasattr(item, 'is_low_stock') and item.is_low_stock:
-            status.append('Low Stock')
-        elif item.quantity_tons < 10:
-            status.append('Low Stock')
-        if not status:
-            status.append('Good')
-            
-        days_in_storage = (date.today() - item.date_stored).days if item.date_stored else 0
-            
-        writer.writerow([
-            item.crop.name,
-            item.quantity_tons,
-            item.storage_location,
-            getattr(item, 'storage_condition', 'N/A'),
-            item.quality_grade,
-            item.date_stored.strftime('%Y-%m-%d'),
-            item.expiry_date.strftime('%Y-%m-%d') if item.expiry_date else 'N/A',
-            days_in_storage,
-            getattr(item, 'unit_price', 'N/A') or 'N/A',
-            getattr(item, 'total_value', 'N/A') or 'N/A',
-            ', '.join(status)
-        ])
-    
-    return response
-
-
-def generate_farm_productivity_report(from_date, to_date, export_format):
-    """Generate farm productivity analysis report"""
-    farms = Farm.objects.all()
-    
-    productivity_data = []
-    for farm in farms:
-        total_harvested = farm.field_set.filter(
-            harvestrecord__harvest_date__range=[from_date, to_date]
-        ).aggregate(total=Sum('harvestrecord__quantity_tons'))['total'] or Decimal('0')
-        
-        efficiency = getattr(farm, 'efficiency_percentage', 0) or 0
-        total_fields = farm.field_set.count()
-        active_fields = farm.field_set.filter(is_active=True).count()
-        primary_crop = getattr(farm, 'primary_crop', 'Mixed') or 'Mixed'
-        
-        productivity_data.append({
-            'farm_name': farm.name,
-            'location': farm.location,
-            'total_area': farm.total_area_hectares,
-            'total_harvested': total_harvested,
-            'efficiency_percentage': efficiency,
-            'total_fields': total_fields,
-            'active_fields': active_fields,
-            'primary_crop': primary_crop
-        })
-    
-    if export_format == 'csv':
-        return generate_csv_productivity_report(productivity_data, from_date, to_date)
-    
-    return JsonResponse({'success': True, 'message': 'Report generated successfully'})
-
-
-def generate_csv_productivity_report(productivity_data, from_date, to_date):
-    """Generate CSV productivity report"""
-    response = HttpResponse(content_type='text/csv')
-    response['Content-Disposition'] = f'attachment; filename="farm_productivity_{from_date}_{to_date}.csv"'
-    
-    writer = csv.writer(response)
-    writer.writerow([
-        'Farm Name', 'Location', 'Total Area (hectares)', 'Total Harvested (tons)',
-        'Efficiency (%)', 'Total Fields', 'Active Fields', 'Primary Crop'
-    ])
-    
-    for data in productivity_data:
-        writer.writerow([
-            data['farm_name'],
-            data['location'],
-            data['total_area'],
-            data['total_harvested'],
-            round(data['efficiency_percentage'], 2),
-            data['total_fields'],
-            data['active_fields'],
-            data['primary_crop']
-        ])
-    
-    return response
-
+    from django.http import FileResponse
+    return FileResponse(open(file_path, "rb"), as_attachment=True, filename=os.path.basename(file_path))
 
 # ========================
 # NOTIFICATIONS AND MISCELLANEOUS VIEWS

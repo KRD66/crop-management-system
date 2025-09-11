@@ -156,3 +156,7 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.ngrok-free.app",
     "https://*.ngrok.io",
 ]
+
+
+
+
