@@ -1,0 +1,126 @@
+{% extends 'monitoring/base.html' %}
+{% block content %}
+<div class="container">
+    <h1>Detailed Farm Operations Report</h1>
+    {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+    <h2>Period: {{ report_data.period }}</h2>
+    
+    <form method="GET" action="{% url 'detailed_reports' %}">
+        <label>From Date: <input type="date" name="from_date" value="{{ from_date }}"></label>
+        <label>To Date: <input type="date" name="to_date" value="{{ to_date }}"></label>
+        <label>Format:
+            <select name="export_format">
+                <option value="pdf" {% if export_format == 'pdf' %}selected{% endif %}>PDF</option>
+                <option value="excel" {% if export_format == 'excel' %}selected{% endif %}>Excel</option>
+                <option value="csv" {% if export_format == 'csv' %}selected{% endif %}>CSV</option>
+            </select>
+        </label>
+        <button type="submit">Refresh</button>
+        <button type="submit" name="action" value="export">Export</button>
+    </form>
+
+    <h3>Summary</h3>
+    <ul>
+        <li>Total Farms: {{ report_data.summary.total_farms }}</li>
+        <li>Total Harvests: {{ report_data.summary.total_harvests }}</li>
+        <li>Total Quantity Harvested: {{ report_data.summary.total_quantity_harvested }} tons</li>
+        <li>Total Inventory Items: {{ report_data.summary.total_inventory_items }}</li>
+        <li>Total Inventory Quantity: {{ report_data.summary.total_inventory_quantity }} tons</li>
+        {% if report_data.summary.inventory_access %}
+            <li>{{ report_data.summary.inventory_access }}</li>
+        {% endif %}
+    </ul>
+
+    <h3>Farms</h3>
+    {% for farm in report_data.farms_data %}
+        <h4>{{ farm.name }}</h4>
+        <p>Manager: {{ farm.manager }}</p>
+        <p>Total Area: {{ farm.total_area }} hectares</p>
+        <p>Active Fields: {{ farm.active_fields }}</p>
+        <p>Primary Crop: {{ farm.primary_crop }}</p>
+        <h5>Fields</h5>
+        <table class="table">
+            <tr>
+                <th>Name</th>
+                <th>Area (ha)</th>
+                <th>Crop</th>
+                <th>Planting Date</th>
+                <th>Expected Harvest</th>
+                <th>Soil Type</th>
+                <th>Irrigation</th>
+            </tr>
+            {% for field in farm.fields %}
+                <tr>
+                    <td>{{ field.name }}</td>
+                    <td>{{ field.area_hectares }}</td>
+                    <td>{{ field.crop }}</td>
+                    <td>{{ field.planting_date|date:"Y-m-d" }}</td>
+                    <td>{{ field.expected_harvest_date|date:"Y-m-d" }}</td>
+                    <td>{{ field.soil_type }}</td>
+                    <td>{{ field.irrigation_type }}</td>
+                </tr>
+            {% endfor %}
+        </table>
+    {% endfor %}
+
+    <h3>Harvests</h3>
+    <table class="table">
+        <tr>
+            <th>Farm</th>
+            <th>Field</th>
+            <th>Crop</th>
+            <th>Quantity (tons)</th>
+            <th>Quality Grade</th>
+            <th>Harvest Date</th>
+            <th>Harvested By</th>
+        </tr>
+        {% for harvest in report_data.harvests_data %}
+            <tr>
+                <td>{{ harvest.farm }}</td>
+                <td>{{ harvest.field }}</td>
+                <td>{{ harvest.crop }}</td>
+                <td>{{ harvest.quantity_tons }}</td>
+                <td>{{ harvest.quality_grade }}</td>
+                <td>{{ harvest.harvest_date|date:"Y-m-d" }}</td>
+                <td>{{ harvest.harvested_by }}</td>
+            </tr>
+        {% endfor %}
+    </table>
+
+    <h3>Inventory</h3>
+    {% if report_data.inventory_data %}
+        <table class="table">
+            <tr>
+                <th>Crop Type</th>
+                <th>Quantity</th>
+                <th>Quality Grade</th>
+                <th>Storage Location</th>
+                <th>Date Stored</th>
+                <th>Expiry Date</th>
+                <th>Added By</th>
+                <th>Status</th>
+            </tr>
+            {% for item in report_data.inventory_data %}
+                <tr>
+                    <td>{{ item.crop_type }}</td>
+                    <td>{{ item.quantity }}</td>
+                    <td>{{ item.quality_grade }}</td>
+                    <td>{{ item.storage_location }}</td>
+                    <td>{{ item.date_stored|date:"Y-m-d" }}</td>
+                    <td>{{ item.expiry_date|date:"Y-m-d" }}</td>
+                    <td>{{ item.added_by }}</td>
+                    <td>
+                        {% if item.is_expired %}Expired
+                        {% elif item.is_expiring_soon %}Expiring Soon
+                        {% else %}Active{% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </table>
+    {% else %}
+        <p>No inventory data available or insufficient permissions.</p>
+    {% endif %}
+</div>
+{% endblock %}

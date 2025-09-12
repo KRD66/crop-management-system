@@ -31,12 +31,11 @@ urlpatterns = [
     path('password-reset-request/', views.password_reset_request, name='password_reset_request'),
     
     # Farm Management
-    path('farms/', views.farm_management, name='farm_management'),
-    path('farms/add/', views.farm_add, name='farm_add'),
-    path('farms/<int:farm_id>/', views.farm_detail, name='farm_detail'),
-    path('farms/<int:farm_id>/edit/', views.farm_edit, name='farm_edit'),
-    path('farms/<int:farm_id>/delete/', views.farm_delete, name='farm_delete'),
-    
+    path('farm/management/', views.farm_management, name='farm_management'),
+    path('farm/add/', views.farm_add, name='farm_add'),
+    path('farm/delete/<int:farm_id>/', views.farm_delete, name='farm_delete'),
+    path('farm/detail/<int:farm_id>/', views.farm_detail, name='farm_detail'),
+    path('farm/edit/<int:farm_id>/', views.farm_edit, name='farm_edit'),
     # Harvest Tracking
      path('harvests/', views.harvest_tracking, name='harvest_tracking'),
     
@@ -59,8 +58,7 @@ urlpatterns = [
 
     # Reports
     path('reports/', views.reports, name='reports'),
-    
-    
+    path('reports/download/<int:report_id>/', views.download_report, name='download_report'),
     # Notifications
     path('notifications/', views.notifications, name='notifications'),
     

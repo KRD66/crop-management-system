@@ -4,10 +4,13 @@ from django.utils import timezone
 from django.core.validators import MinValueValidator, MaxValueValidator
 from decimal import Decimal
 from datetime import date
-from django.db.models import Sum
+from django.db.models import Sum, Count, Avg
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
+from django.db import models
+from django.utils import timezone
+from django.apps import apps
 
 class UserProfile(models.Model):
     ROLE_CHOICES = [
@@ -174,6 +177,16 @@ class UserProfile(models.Model):
             else:
                 return Inventory.objects.none()
         
+        elif model_name == 'InventoryItem':  # NEW CASE
+            if self.role in ['admin', 'inventory_manager']:
+                return InventoryItem.objects.all()
+            elif self.role == 'farm_manager':
+                # Farm managers see items added by their farm's users (via added_by or transactions)
+                return InventoryItem.objects.filter(added_by__userprofile__role='farm_manager', 
+                                                   added_by__userprofile__user__managed_farms__manager=self.user).distinct()
+            else:
+                return InventoryItem.objects.none()
+        
         # Default: return empty queryset for unknown models
         return apps.get_model('your_app', model_name).objects.none()
     
@@ -200,9 +213,13 @@ class UserProfile(models.Model):
                    (self.role == 'farm_manager' and obj.harvest_record and 
                     obj.harvest_record.field.farm.manager == self.user)
         
+        elif isinstance(obj, InventoryItem):  # NEW CASE
+            return self.role in ['admin', 'inventory_manager'] or \
+                   (self.role == 'farm_manager' and obj.added_by and 
+                    obj.added_by.userprofile.role == 'farm_manager' and 
+                    obj.added_by.userprofile.user.managed_farms.filter(manager=self.user).exists())
+        
         return False
-
-
 class Farm(models.Model):
     """
     Farm model with all required fields for admin interface
@@ -234,6 +251,14 @@ class Farm(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     notes = models.TextField(blank=True)
     
+    # Added for template compatibility
+    calculated_total_area = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, editable=False)
+    calculated_field_count = models.IntegerField(default=0, editable=False)
+    # ManyToMany for crop types (from template checkboxes)
+    crop_types = models.ManyToManyField('CropType', blank=True, related_name='farms')
+    # For yield calculations
+    calculated_avg_yield = models.DecimalField(max_digits=8, decimal_places=2, default=0.00, editable=False)
+    
     class Meta:
         verbose_name = "Farm"
         verbose_name_plural = "Farms"
@@ -241,6 +266,25 @@ class Farm(models.Model):
     
     def __str__(self):
         return f"{self.name} - {self.location}"
+    
+    def save(self, *args, **kwargs):
+        """Override save to update calculated fields after PK is assigned."""
+        super().save(*args, **kwargs)  # Save first to get PK
+        self.update_calculated_fields()  # Update calculated fields after save
+    
+    def update_calculated_fields(self):
+        """Update calculated fields based on child fields."""
+        self.calculated_total_area = self.field_set.aggregate(total=Sum('area_hectares'))['total'] or Decimal('0.00')
+        self.calculated_field_count = self.field_set.count()
+        # Calculate avg yield from harvests (tons per acre, convert hectares to acres)
+        if self.calculated_field_count > 0:
+            total_yield = self.field_set.aggregate(total=Sum('harvestrecord_set__quantity_tons'))['total'] or Decimal('0.00')
+            total_acres = float(self.calculated_total_area * Decimal('2.47105'))  # hectares to acres
+            self.calculated_avg_yield = (total_yield / Decimal(str(total_acres))) if total_acres > 0 else Decimal('0.00')
+        else:
+            self.calculated_avg_yield = Decimal('0.00')
+        # Save the updates
+        super().save(update_fields=['calculated_total_area', 'calculated_field_count', 'calculated_avg_yield'])
     
     @property
     def total_fields(self):
@@ -256,7 +300,7 @@ class Farm(models.Model):
     def total_harvested_all_time(self):
         """Get total harvest quantity for all time"""
         return self.field_set.aggregate(
-            total=Sum('harvestrecord__quantity_tons')
+            total=Sum('harvestrecord_set__quantity_tons')
         )['total'] or Decimal('0.00')
     
     @property
@@ -264,8 +308,8 @@ class Farm(models.Model):
         """Get total harvest quantity for current year"""
         current_year = timezone.now().year
         return self.field_set.aggregate(
-            total=Sum('harvestrecord__quantity_tons', 
-                     filter=models.Q(harvestrecord__harvest_date__year=current_year))
+            total=Sum('harvestrecord_set__quantity_tons', 
+                     filter=models.Q(harvestrecord_set__harvest_date__year=current_year))
         )['total'] or Decimal('0.00')
     
     @property
@@ -315,24 +359,23 @@ class Farm(models.Model):
     def upcoming_harvests(self):
         """Get fields with upcoming harvests (next 30 days)"""
         from datetime import timedelta
-        thirty_days = date.today() + timedelta(days=30)
+        from django.utils import timezone
+        thirty_days = timezone.now().date() + timedelta(days=30)
         return self.field_set.filter(
             expected_harvest_date__lte=thirty_days,
-            expected_harvest_date__gte=date.today(),
+            expected_harvest_date__gte=timezone.now().date(),
             is_active=True
         )
     
     def get_monthly_harvest(self, year, month):
         """Get harvest total for a specific month"""
         return self.field_set.aggregate(
-            total=Sum('harvestrecord__quantity_tons',
+            total=Sum('harvestrecord_set__quantity_tons',
                      filter=models.Q(
-                         harvestrecord__harvest_date__year=year,
-                         harvestrecord__harvest_date__month=month
+                         harvestrecord_set__harvest_date__year=year,
+                         harvestrecord_set__harvest_date__month=month
                      ))
         )['total'] or Decimal('0.00')
-
-
 class Crop(models.Model):
     CROP_TYPES = [
         ('cereal', 'Cereal'),
@@ -378,7 +421,7 @@ class Crop(models.Model):
 
 
 class Field(models.Model):
-    farm = models.ForeignKey(Farm, on_delete=models.CASCADE)
+    farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='field_set')
     name = models.CharField(max_length=100)
     crop = models.ForeignKey(Crop, on_delete=models.CASCADE)
     area_hectares = models.DecimalField(
@@ -389,6 +432,13 @@ class Field(models.Model):
     planting_date = models.DateField()
     expected_harvest_date = models.DateField()
     supervisor = models.ForeignKey(User, on_delete=models.CASCADE, related_name='supervised_fields')
+    soil_quality = models.CharField(max_length=50, blank=True, choices=[
+        ('', 'Select quality'),
+        ('excellent', 'Excellent'),
+        ('good', 'Good'),
+        ('average', 'Average'),
+        ('poor', 'Poor'),
+    ])
     soil_type = models.CharField(max_length=100, blank=True)
     irrigation_type = models.CharField(max_length=100, blank=True)
     is_active = models.BooleanField(default=True)
@@ -404,6 +454,12 @@ class Field(models.Model):
     
     def __str__(self):
         return f"{self.farm.name} - {self.name}"
+    
+    def save(self, *args, **kwargs):
+        """Trigger farm update after field save"""
+        super().save(*args, **kwargs)
+        self.farm.update_calculated_fields()
+        self.farm.save()
     
     @property
     def days_to_harvest(self):
@@ -467,12 +523,12 @@ class HarvestRecord(models.Model):
         ('completed', 'Completed'),
         ('cancelled', 'Cancelled'),
     ]
-    field = models.ForeignKey(Field, on_delete=models.CASCADE)
+    field = models.ForeignKey(Field, on_delete=models.CASCADE, related_name='harvestrecord_set')
     harvest_date = models.DateField()
     quantity_tons = models.DecimalField(max_digits=10, decimal_places=2)
-    quality_grade = models.CharField(max_length=1, choices=[('A', 'A'), ('B', 'B'), ('C', 'C')])
+    quality_grade = models.CharField(max_length=1, choices=QUALITY_GRADES)
     harvested_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='harvested_records')
-    status = models.CharField(max_length=20, default='completed')
+    status = models.CharField(max_length=20, default='completed', choices=STATUS_CHOICES)
     weather_conditions = models.CharField(max_length=100, blank=True)
     moisture_content = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     notes = models.TextField(blank=True)
@@ -487,6 +543,7 @@ class HarvestRecord(models.Model):
     
     def __str__(self):
         return f"{self.field} - {self.harvest_date} - {self.quantity_tons}t"
+    
     @property
     def yield_per_hectare(self):
         """Calculate yield per hectare for this harvest"""

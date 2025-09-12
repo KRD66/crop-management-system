@@ -6,11 +6,9 @@ from datetime import date, timedelta
 from django.db import models
 from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
 from django.contrib.auth.models import User
-from .models import Farm, HarvestRecord
+from .models import Farm, HarvestRecord, Field, Crop, CropType, Inventory, InventoryItem, StorageLocation,UserProfile
 from decimal import Decimal
- 
-
-from .models import Inventory, Crop, HarvestRecord, UserProfile
+from django.forms import inlineformset_factory
 
 
 #  AUTHENTICATION & USER MANAGEMENT
@@ -380,29 +378,37 @@ class UserAddForm(forms.ModelForm):
     
    #---------add farm form-----
 class FarmForm(forms.ModelForm):
-    size_acres = forms.DecimalField(
+    """
+    Updated FarmForm for the farm management modal.
+    Handles hectares directly (as per template), crop_types as MultipleChoiceField mapped to CropType.
+    """
+    total_area_hectares = forms.DecimalField(
         max_digits=10, 
         decimal_places=2, 
         min_value=Decimal('0.01'),
-        required=True,
-        label="Size (acres)"
+        required=False,  # Allow 0; calculated from fields
+        label="Size (Hectares)",
+        widget=forms.NumberInput(attrs={
+            'class': 'form-input',
+            'placeholder': '0.0',
+            'min': '0.01',
+            'step': '0.01'
+        })
     )
     planting_date = forms.DateField(
         required=False,
-        widget=forms.DateInput(attrs={'type': 'date'}),
+        widget=forms.DateInput(attrs={
+            'class': 'form-input',
+            'type': 'date'
+        }),
         label="Planting Date"
     )
-    crop_types = forms.MultipleChoiceField(
+    crop_types = forms.ModelMultipleChoiceField(
         required=False,
-        widget=forms.CheckboxSelectMultiple,
-        choices=[
-            ('corn', 'Corn'),
-            ('wheat', 'Wheat'),
-            ('cocoa', 'Cocoa'),
-            ('rice', 'Rice'),
-            ('cassava', 'Cassava'),
-            ('okro', 'Okro'),
-        ],
+        queryset=CropType.objects.filter(is_active=True),
+        widget=forms.CheckboxSelectMultiple(attrs={
+            'class': 'crop-types-grid'  # Matches template CSS
+        }),
         label="Crop Types"
     )
 
@@ -412,26 +418,171 @@ class FarmForm(forms.ModelForm):
             'name',
             'location',
             'soil_type',
-            'notes',
-            'size_acres',
+            'total_area_hectares',
             'planting_date',
+            'notes',
             'crop_types',
         ]
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': 'form-input',
+                'placeholder': 'Enter farm name',
+                'required': True
+            }),
+            'location': forms.TextInput(attrs={
+                'class': 'form-input',
+                'placeholder': 'Enter location'
+            }),
+            'soil_type': forms.Select(attrs={
+                'class': 'form-select'
+            }),
+            'notes': forms.Textarea(attrs={
+                'class': 'form-textarea',
+                'placeholder': 'Additional notes about the farm'
+            }),
+        }
 
-    def save(self, commit=True):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Soil type choices matching template
+        self.fields['soil_type'].choices = [
+            ('', 'Select soil type'),
+            ('clay', 'Clay'),
+            ('loam', 'Loam'),
+            ('sandy', 'Sandy'),
+            ('silt', 'Silt'),
+            ('peat', 'Peat'),
+            ('chalk', 'Chalk')
+        ]
+        # Crop types choices from model
+        self.fields['crop_types'].queryset = CropType.objects.filter(is_active=True).order_by('display_name')
+
+    def clean_total_area_hectares(self):
+        data = self.cleaned_data.get('total_area_hectares', Decimal('0.00'))
+        # Allow 0 since calculated from fields
+        return data
+
+    def save(self, commit=True, manager=None):
         farm = super().save(commit=False)
-        # Convert acres → hectares before saving
-        farm.total_area_hectares = self.cleaned_data['size_acres'] / Decimal('2.47105')
-        farm.established_date = self.cleaned_data['planting_date']
-        
-        # TODO: handle crop_types (save in notes or another field if needed)
-        crops = self.cleaned_data.get('crop_types')
-        if crops:
-            farm.notes += f"\nCrops: {', '.join(crops)}"
-        
+        if manager:
+            farm.manager = manager
+        farm.is_active = True
         if commit:
             farm.save()
+            # Save M2M crop_types
+            farm.crop_types.set(self.cleaned_data.get('crop_types', []))
+            farm.update_calculated_fields()
+            farm.save()
         return farm
+
+
+class FieldInlineForm(forms.ModelForm):
+    """
+    Inline form for Field in the farm modal.
+    crop_type is a choice field; mapped to Crop in view/save.
+    """
+    crop_type = forms.ChoiceField(
+        choices=[
+            ('', 'Select crop'),
+            ('corn', 'Corn'),
+            ('wheat', 'Wheat'),
+            ('cocoa', 'Cocoa'),
+            ('rice', 'Rice'),
+            ('cassava', 'Cassava'),
+            ('yam', 'Yam'),
+            ('vegetables', 'Vegetables'),
+            ('fruits', 'Fruits')
+        ],
+        required=True,
+        widget=forms.Select(attrs={
+            'class': 'field-input'
+        })
+    )
+    soil_quality = forms.ChoiceField(
+        choices=[
+            ('', 'Select quality'),
+            ('excellent', 'Excellent'),
+            ('good', 'Good'),
+            ('average', 'Average'),
+            ('poor', 'Poor')
+        ],
+        required=False,
+        widget=forms.Select(attrs={
+            'class': 'field-input'
+        })
+    )
+
+    class Meta:
+        model = Field
+        fields = [
+            'name',
+            'area_hectares',
+            'crop_type',  # Custom field, not model field
+            'soil_quality',
+            'planting_date',
+            'expected_harvest_date'
+        ]
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': 'field-input',
+                'placeholder': 'e.g. North Field',
+                'required': True
+            }),
+            'area_hectares': forms.NumberInput(attrs={
+                'class': 'field-input',
+                'placeholder': '0.0',
+                'min': '0.01',
+                'step': '0.01',
+                'required': True
+            }),
+            'planting_date': forms.DateInput(attrs={
+                'class': 'field-input',
+                'type': 'date'
+            }),
+            'expected_harvest_date': forms.DateInput(attrs={
+                'class': 'field-input',
+                'type': 'date'
+            }),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        instance = kwargs.get('instance', None)
+        if instance and instance.crop:
+            self.initial['crop_type'] = instance.crop.name
+
+    def save(self, commit=True, farm=None, supervisor=None):
+        field = super().save(commit=False)
+        # Map crop_type to Crop
+        crop_type_str = self.cleaned_data.get('crop_type')
+        if crop_type_str:
+            crop, _ = Crop.objects.get_or_create(
+                name=crop_type_str,
+                defaults={
+                    'crop_type': 'other',
+                    'expected_yield_per_hectare': Decimal('5.00')
+                }
+            )
+            field.crop = crop
+        if farm:
+            field.farm = farm
+        if supervisor:
+            field.supervisor = supervisor
+        if commit:
+            field.save()
+        return field
+
+
+# Inline formset for dynamic fields
+FarmFieldFormSet = inlineformset_factory(
+    Farm,
+    Field,
+    form=FieldInlineForm,
+    extra=1,  # Start with 1 empty field
+    can_delete=True,
+    can_order=False
+)
+
 
 class HarvestForm(forms.ModelForm):
     class Meta:

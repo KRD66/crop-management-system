@@ -306,7 +306,7 @@
         </div>
         <div class="metric-content">
             <div class="metric-label">Available Reports</div>
-            <div class="metric-value">4</div>
+            <div class="metric-value">{{ available_report_types }}</div>
             <div class="metric-change">Report templates</div>
         </div>
     </div>
@@ -317,7 +317,7 @@
         </div>
         <div class="metric-content">
             <div class="metric-label">Generated Reports</div>
-            <div class="metric-value">4</div>
+            <div class="metric-value">{{ ready_for_download }}</div>
             <div class="metric-change">Ready for download</div>
         </div>
     </div>
@@ -328,7 +328,7 @@
         </div>
         <div class="metric-content">
             <div class="metric-label">This Month</div>
-            <div class="metric-value">12</div>
+            <div class="metric-value">{{ this_month_reports }}</div>
             <div class="metric-change">Reports generated</div>
         </div>
     </div>
@@ -339,12 +339,11 @@
         </div>
         <div class="metric-content">
             <div class="metric-label">Data Coverage</div>
-            <div class="metric-value">98%</div>
+            <div class="metric-value">{{ data_coverage|floatformat:0 }}%</div>
             <div class="metric-change">Data completeness</div>
         </div>
     </div>
 </div>
-
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
     <!-- Generate New Report Section -->
     <div class="report-section">
@@ -560,78 +559,40 @@
                 </tr>
             </thead>
             <tbody>
+                {% for report in recent_reports %}
                 <tr style="border-bottom: 1px solid #f1f5f9;">
-                    <td style="padding: 12px 16px; color: #111827; font-weight: 500;">August 2024 Harvest Summary</td>
-                    <td style="padding: 12px 16px; color: #6b7280;">Monthly Harvest</td>
-                    <td style="padding: 12px 16px; color: #6b7280;">Aug 15, 2024</td>
+                    <td style="padding: 12px 16px; color: #111827; font-weight: 500;">{{ report.name }}</td>
+                    <td style="padding: 12px 16px; color: #6b7280;">{{ report.get_report_type_display|default:report.report_type }}</td>
+                    <td style="padding: 12px 16px; color: #6b7280;">{{ report.generated_at|date:"M d, Y" }}</td>
                     <td style="padding: 12px 16px;">
-                        <span style="background: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 500;">PDF</span>
+                        <span style="background: 
+                            {% if report.export_format == 'pdf' %}#dbeafe; color: #1e40af;
+                            {% elif report.export_format == 'excel' %}#dcfce7; color: #166534;
+                            {% else %}#fef3c7; color: #92400e;{% endif %}
+                            padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 500;">
+                            {{ report.export_format|upper }}
+                        </span>
                     </td>
                     <td style="padding: 12px 16px;">
                         <div style="display: flex; gap: 8px;">
-                            <button onclick="downloadReport('harvest_aug_2024.pdf')" style="background: #f0f9ff; color: #0369a1; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="Download">
+                            <button onclick="downloadReport('{{ report.name|slugify }}.{{ report.export_format }}')" 
+                                    style="background: #f0f9ff; color: #0369a1; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="Download">
                                 <i class="fas fa-download"></i>
                             </button>
-                            <button onclick="viewReport('harvest_aug_2024.pdf')" style="background: #f0fdf4; color: #15803d; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="View">
+                            <button onclick="viewReport('{{ report.name|slugify }}.{{ report.export_format }}')" 
+                                    style="background: #f0fdf4; color: #15803d; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="View">
                                 <i class="fas fa-eye"></i>
                             </button>
                         </div>
                     </td>
                 </tr>
-                <tr style="border-bottom: 1px solid #f1f5f9;">
-                    <td style="padding: 12px 16px; color: #111827; font-weight: 500;">Q2 2024 Yield Performance</td>
-                    <td style="padding: 12px 16px; color: #6b7280;">Yield Performance</td>
-                    <td style="padding: 12px 16px; color: #6b7280;">Jul 31, 2024</td>
-                    <td style="padding: 12px 16px;">
-                        <span style="background: #dcfce7; color: #166534; padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 500;">Excel</span>
-                    </td>
-                    <td style="padding: 12px 16px;">
-                        <div style="display: flex; gap: 8px;">
-                            <button onclick="downloadReport('yield_q2_2024.xlsx')" style="background: #f0f9ff; color: #0369a1; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="Download">
-                                <i class="fas fa-download"></i>
-                            </button>
-                            <button onclick="viewReport('yield_q2_2024.xlsx')" style="background: #f0fdf4; color: #15803d; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="View">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-                <tr style="border-bottom: 1px solid #f1f5f9;">
-                    <td style="padding: 12px 16px; color: #111827; font-weight: 500;">Current Inventory Status</td>
-                    <td style="padding: 12px 16px; color: #6b7280;">Inventory Status</td>
-                    <td style="padding: 12px 16px; color: #6b7280;">Aug 10, 2024</td>
-                    <td style="padding: 12px 16px;">
-                        <span style="background: #fef3c7; color: #92400e; padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 500;">CSV</span>
-                    </td>
-                    <td style="padding: 12px 16px;">
-                        <div style="display: flex; gap: 8px;">
-                            <button onclick="downloadReport('inventory_aug_2024.csv')" style="background: #f0f9ff; color: #0369a1; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="Download">
-                                <i class="fas fa-download"></i>
-                            </button>
-                            <button onclick="viewReport('inventory_aug_2024.csv')" style="background: #f0fdf4; color: #15803d; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="View">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                        </div>
-                    </td>
-                </tr>
+                {% empty %}
                 <tr>
-                    <td style="padding: 12px 16px; color: #111827; font-weight: 500;">Farm Productivity Analysis</td>
-                    <td style="padding: 12px 16px; color: #6b7280;">Productivity Analysis</td>
-                    <td style="padding: 12px 16px; color: #6b7280;">Jul 15, 2024</td>
-                    <td style="padding: 12px 16px;">
-                        <span style="background: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 500;">PDF</span>
-                    </td>
-                    <td style="padding: 12px 16px;">
-                        <div style="display: flex; gap: 8px;">
-                            <button onclick="downloadReport('productivity_jul_2024.pdf')" style="background: #f0f9ff; color: #0369a1; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="Download">
-                                <i class="fas fa-download"></i>
-                            </button>
-                            <button onclick="viewReport('productivity_jul_2024.pdf')" style="background: #f0fdf4; color: #15803d; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="View">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                        </div>
+                    <td colspan="5" style="padding: 20px; text-align: center; color: #6b7280;">
+                        No reports generated yet. Create your first report above!
                     </td>
                 </tr>
+                {% endfor %}
             </tbody>
         </table>
     </div>
@@ -677,29 +638,65 @@
         // Show loading modal
         showLoadingModal();
         
-        // Simulate report generation progress
-        let progress = 0;
-        const progressInterval = setInterval(() => {
-            progress += Math.random() * 15;
-            if (progress > 90) progress = 90;
-            document.getElementById('progressBar').style.width = progress + '%';
-        }, 200);
+        // Add ajax flag to form data
+        formData.append('ajax', '1');
         
-        // Simulate API call
-        setTimeout(() => {
-            clearInterval(progressInterval);
-            document.getElementById('progressBar').style.width = '100%';
+        // FIXED: Post to /reports/ instead of /reports/generate/
+        fetch('/reports/', {  // <-- This was /reports/generate/
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            if (response.headers.get('content-type')?.includes('application/json')) {
+                return response.json();
+            } else {
+                // Handle direct download if no JSON
+                return response.blob().then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = `report_${Date.now()}.${exportFormat}`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    return { success: true, message: 'Report downloaded successfully!' };
+                });
+            }
+        })
+        .then(data => {
+            hideLoadingModal();
             
-            setTimeout(() => {
-                hideLoadingModal();
+            if (data.success) {
+                showToast(data.message, 'success');
                 
-                // Show success message
-                showToast('Report generated successfully! It will be available for download shortly.', 'success');
+                if (data.download_url) {
+                    // Trigger automatic download
+                    setTimeout(() => {
+                        window.location.href = data.download_url;
+                    }, 1000);
+                }
                 
-                // Reset form
+                // Reset form and refresh page to show updated reports
                 event.target.reset();
-            }, 500);
-        }, 3000);
+                setTimeout(() => {
+                    location.reload();
+                }, 2000);
+            } else {
+                showToast(data.error || 'Error generating report', 'error');
+            }
+        })
+        .catch(error => {
+            hideLoadingModal();
+            console.error('Error:', error);
+            showToast('Error generating report. Please try again.', 'error');
+        });
     }
 
     function useTemplate(templateType) {
@@ -712,31 +709,30 @@
         // Set report type
         reportTypeSelect.value = templateType;
         
-        // Set default dates based on template
+        // Set default dates based on template (wider range for testing)
         const today = new Date();
-        const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-        const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const yearStart = new Date(today.getFullYear() - 1, 0, 1);  // Jan 1 last year for broader coverage
         
         switch(templateType) {
             case 'monthly_harvest_summary':
-                fromDateInput.value = lastMonth.toISOString().split('T')[0];
-                toDateInput.value = new Date(today.getFullYear(), today.getMonth(), 0).toISOString().split('T')[0];
-                exportFormatSelect.value = 'pdf';
+                fromDateInput.value = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().split('T')[0];
+                toDateInput.value = today.toISOString().split('T')[0];
+                exportFormatSelect.value = 'csv';  // CSV for easy testing
                 break;
             case 'yield_performance_report':
-                fromDateInput.value = new Date(today.getFullYear(), today.getMonth() - 3, 1).toISOString().split('T')[0];
+                fromDateInput.value = yearStart.toISOString().split('T')[0];  // Wider: last year start
                 toDateInput.value = today.toISOString().split('T')[0];
                 exportFormatSelect.value = 'excel';
                 break;
             case 'inventory_status_report':
-                fromDateInput.value = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 7).toISOString().split('T')[0];
+                fromDateInput.value = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];  // This month
                 toDateInput.value = today.toISOString().split('T')[0];
                 exportFormatSelect.value = 'csv';
                 break;
             default:
-                fromDateInput.value = lastMonth.toISOString().split('T')[0];
+                fromDateInput.value = yearStart.toISOString().split('T')[0];  // Default to broad range
                 toDateInput.value = today.toISOString().split('T')[0];
-                exportFormatSelect.value = 'pdf';
+                exportFormatSelect.value = 'csv';
         }
         
         // Scroll to form
@@ -752,24 +748,27 @@
         document.getElementById('loadingModal').style.display = 'none';
     }
 
-    function downloadReport(filename) {
-        showToast('Downloading: ' + filename, 'info');
+    function downloadReport(reportId) {
+        window.location.href = `/reports/download/${reportId}/`;
+        showToast('Downloading report...', 'info');
+    }
+    
+    function viewReport(reportId) {
+        // Open in new tab for viewing
+        window.open(`/reports/download/${reportId}/`, '_blank');
+        showToast('Opening report...', 'info');
     }
 
-    function viewReport(filename) {
-        showToast('Viewing: ' + filename, 'info');
-    }
-
-    // Set default dates on page load
+    // Set default dates on page load (wider range for testing your data)
     document.addEventListener('DOMContentLoaded', function() {
         const today = new Date();
-        const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-        const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+        const yearStart = new Date(today.getFullYear() - 1, 0, 1);  // Jan 1, 2024 for broad coverage
+        const now = today.toISOString().split('T')[0];
         
-        document.getElementById('fromDate').value = lastMonth.toISOString().split('T')[0];
-        document.getElementById('toDate').value = endOfLastMonth.toISOString().split('T')[0];
+        document.getElementById('fromDate').value = yearStart.toISOString().split('T')[0];  // e.g., 2024-01-01
+        document.getElementById('toDate').value = now;  // e.g., 2025-09-12
         
-        showToast('Reports page loaded successfully', 'success');
+        showToast('Reports page loaded with broad date range (2024-01-01 to today) for testing', 'success');
     });
 
     // Validate date range

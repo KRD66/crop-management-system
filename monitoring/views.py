@@ -504,274 +504,408 @@ def password_reset_request(request):
 # ========================
 # FARM MANAGEMENT VIEWS
 # ========================
+from django.shortcuts import render, get_object_or_404, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db.models import Sum, Avg, Count, Q
+from django.urls import reverse
+from django.http import JsonResponse
+from django.views.decorators.http import require_http_methods
+from django.utils import timezone
+from datetime import timedelta
+from collections import defaultdict
+from decimal import Decimal
 
+# Import your models
+from .models import Farm, Field, Crop, CropType, HarvestRecord, UserProfile
 
 @login_required
-@admin_added_required  # Keep your existing decorator
 def farm_management(request):
-    """Farm management view - your existing comprehensive view"""
-    # Add form for the modal
-    form = FarmForm()
+    """
+    Main view for farm management dashboard.
+    Renders the full template with all data.
+    Filters based on user permissions via UserProfile.
+    """
+    user_profile = UserProfile.objects.get(user=request.user)
     
-    farms = Farm.objects.filter(is_active=True).prefetch_related('field_set__crop')
-
+    # Get accessible farms based on role
+    if user_profile.can_manage_farms:
+        farms = Farm.objects.all().prefetch_related('field_set', 'crop_types', 'field_set__crop', 'field_set__harvestrecord_set')
+    else:
+        farms = user_profile.get_queryset_for_model('Farm').prefetch_related('field_set', 'crop_types', 'field_set__crop', 'field_set__harvestrecord_set')
+    
+    # Calculate totals (using calculated fields where possible)
     total_farms = farms.count()
     active_farms = farms.filter(is_active=True).count()
+    total_area_hectares = farms.aggregate(total=Sum('calculated_total_area'))['total'] or Decimal('0.00')
+    total_area_acres = round(float(total_area_hectares * Decimal('2.47105')), 1)  # Convert to acres
+    avg_farm_size_hectares = farms.aggregate(avg=Avg('calculated_total_area'))['avg'] or Decimal('0.00')
+    avg_farm_size_acres = round(float(avg_farm_size_hectares * Decimal('2.47105')), 1)
+    total_fields = Field.objects.filter(farm__in=farms).count()
     
-    total_area = Decimal('0')
-    total_fields = 0
-    total_harvested_all = Decimal('0')
+    # Location distribution for chart (top 5)
+    location_distribution = list(
+        farms.values('location').annotate(count=Count('id')).filter(location__isnull=False).order_by('-count')[:5]
+    )
+    if len(location_distribution) == 0:
+        location_distribution = [{'location': 'No location data', 'count': 0}]
     
-    farms_with_stats = []
-    for farm in farms:
-        farm_fields = farm.field_set.all()
-        field_count = farm_fields.count()
-        total_fields += field_count
-
-        farm_area_hectares = farm_fields.aggregate(
-            total=Sum('area_hectares')
-        )['total'] or Decimal('0')
-        
-        if farm_area_hectares == 0:
-            farm_area_hectares = farm.total_area_hectares
-        
-        total_area_acres = farm_area_hectares * Decimal('2.47105')  # Convert to acres
-        total_area += total_area_acres
-
-        total_harvested = HarvestRecord.objects.filter(
-            field__farm=farm
-        ).aggregate(total=Sum('quantity_tons'))['total'] or Decimal('0')
-        total_harvested_all += total_harvested
-
-        if total_area_acres > 0:
-            avg_yield = total_harvested / total_area_acres
-        else:
-            avg_yield = Decimal('0')
-
-        farm.calculated_field_count = field_count
-        farm.calculated_total_area = total_area_acres
-        farm.calculated_total_harvested = total_harvested
-        farm.calculated_avg_yield = avg_yield
-        
-        farms_with_stats.append(farm)
-
-    avg_farm_size = total_area / total_farms if total_farms > 0 else Decimal('0')
-
-    try:
-        recent_farms = Farm.objects.order_by('-created_at')[:5]
-    except:
-        recent_farms = farms[:5]
-
-    top_farms = sorted(farms_with_stats, key=lambda x: x.calculated_avg_yield, reverse=True)[:5]
-
-    # Location distribution
-    location_distribution = []
-    location_counts = defaultdict(int)
-    for farm in farms:
-        location = farm.location if farm.location else 'Unknown'
-        location_counts[location] += 1
-    
-    for location, count in location_counts.items():
-        location_distribution.append({
-            'location': location,
-            'count': count
-        })
-
-    # Size distribution
+    # Size distribution for chart (binned by acres)
     size_distribution = []
-    size_ranges = {
-        '0-50 acres': 0,
-        '51-100 acres': 0,
-        '101-200 acres': 0,
-        '200+ acres': 0
-    }
-    
-    for farm in farms_with_stats:
-        size = float(farm.calculated_total_area)
-        if size <= 50:
-            size_ranges['0-50 acres'] += 1
-        elif size <= 100:
-            size_ranges['51-100 acres'] += 1
-        elif size <= 200:
-            size_ranges['101-200 acres'] += 1
-        else:
-            size_ranges['200+ acres'] += 1
-    
-    for range_name, count in size_ranges.items():
+    farm_sizes_acres = [round(float(f.calculated_total_area * Decimal('2.47105')), 1) for f in farms]
+    bins = [(0, 5), (5, 10), (10, 20), (20, float('inf'))]
+    bin_labels = ['0-5 acres', '5-10 acres', '10-20 acres', '20+ acres']
+    for i, (low, high) in enumerate(bins):
+        count = sum(1 for size in farm_sizes_acres if low <= size < high)
         if count > 0:
-            size_distribution.append({
-                'range': range_name,
-                'count': count
-            })
-
+            size_distribution.append({'range': bin_labels[i], 'count': count})
+    if len(size_distribution) == 0:
+        size_distribution = [{'range': 'No size data', 'count': 0}]
+    
+    # Recent farms (last 7 days, accessible ones)
+    recent_farms = farms.filter(created_at__gte=timezone.now() - timedelta(days=7)).order_by('-created_at')
+    
+    # Top farms by average yield (using calculated_avg_yield, filter non-zero)
+    top_farms = farms.filter(calculated_avg_yield__gt=0).order_by('-calculated_avg_yield')[:5]
+    
     context = {
-        'form': form,  # Add the form for the modal
         'total_farms': total_farms,
         'active_farms': active_farms,
-        'total_area': round(float(total_area), 1),
-        'avg_farm_size': round(float(avg_farm_size), 1),
+        'total_area': total_area_acres,
+        'avg_farm_size': avg_farm_size_acres,
         'total_fields': total_fields,
-        'farms': farms_with_stats,
-        'recent_farms': recent_farms,
-        'top_farms': top_farms,
+        'farms': farms,
         'location_distribution': location_distribution,
         'size_distribution': size_distribution,
+        'recent_farms': recent_farms,
+        'top_farms': top_farms,
     }
-
     return render(request, 'monitoring/farm_management.html', context)
+from django.shortcuts import render, get_object_or_404, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.db.models import Sum, Avg, Count, Q
+from django.urls import reverse
+from django.http import JsonResponse
+from django.views.decorators.http import require_http_methods
+from django.utils import timezone
+from datetime import timedelta
+from collections import defaultdict
+from decimal import Decimal
+
+# Import your models
+from .models import Farm, Field, Crop, CropType, HarvestRecord, UserProfile
+@login_required
+def farm_add(request):
+    """
+    View to add a new farm and its fields from manual form data.
+    Parses nested POST like fields[1][name] from JS.
+    """
+    if request.method == 'POST':
+        user_profile = UserProfile.objects.get(user=request.user)
+        if not user_profile.can_manage_farms:
+            messages.error(request, 'You do not have permission to add farms.')
+            return redirect('monitoring:farm_management')
+        
+        # Extract farm data
+        name = request.POST.get('name', '').strip()
+        location = request.POST.get('location', '').strip()
+        soil_type = request.POST.get('soil_type', '').strip()
+        total_area_hectares_input = request.POST.get('total_area_hectares', '0').strip()
+        total_area_hectares = Decimal(total_area_hectares_input) if total_area_hectares_input else Decimal('0.00')
+        planting_date = request.POST.get('planting_date', '').strip()  # Template sends this
+        notes = request.POST.get('notes', '').strip()
+        crop_types = request.POST.getlist('crop_types')  # Checkbox list
+        
+        if not name:
+            messages.error(request, 'Farm name is required.')
+            return redirect('monitoring:farm_management')
+        
+        if total_area_hectares < Decimal('0.01'):
+            total_area_hectares = Decimal('0.01')  # Min value fallback
+        
+        # Create farm (map planting_date to established_date)
+        farm = Farm.objects.create(
+            name=name,
+            manager=request.user,
+            location=location or None,
+            soil_type=soil_type or None,
+            total_area_hectares=total_area_hectares,
+            established_date=planting_date or None,  # Fixed: Use model's established_date
+            notes=notes,
+            is_active=True,
+        )
+        
+        # Handle crop types (M2M to CropType)
+        fields_created = 0
+        for crop_value in crop_types:
+            try:
+                crop_type = CropType.objects.get(name=crop_value)
+                farm.crop_types.add(crop_type)
+            except CropType.DoesNotExist:
+                messages.warning(request, f'Crop type "{crop_value}" not found—skipped.')
+        
+        # Extract fields data (parse nested POST keys like fields[1][name])
+        i = 1
+        while True:
+            field_name = request.POST.get(f'fields[{i}][name]', '').strip()
+            if not field_name:
+                break
+            
+            area_hectares_input = request.POST.get(f'fields[{i}][area_hectares]', '0').strip()
+            area_hectares = Decimal(area_hectares_input) if area_hectares_input else Decimal('0.00')
+            crop_type_str = request.POST.get(f'fields[{i}][crop_type]', '').strip()
+            soil_quality = request.POST.get(f'fields[{i}][soil_quality]', '').strip()
+            field_planting_date = request.POST.get(f'fields[{i}][planting_date]', '').strip()
+            expected_harvest_date = request.POST.get(f'fields[{i}][expected_harvest_date]', '').strip()
+            
+            if area_hectares <= 0:
+                i += 1
+                continue
+            
+            # Get or create Crop
+            crop, created = Crop.objects.get_or_create(
+                name=crop_type_str,
+                defaults={
+                    'crop_type': 'other',
+                    'expected_yield_per_hectare': Decimal('5.00'),
+                    'is_active': True
+                }
+            )
+            if created:
+                messages.info(request, f'New crop "{crop_type_str}" created.')
+            
+            # Create field
+            Field.objects.create(
+                farm=farm,
+                name=field_name,
+                crop=crop,
+                area_hectares=area_hectares,
+                planting_date=field_planting_date or planting_date,
+                expected_harvest_date=expected_harvest_date,
+                supervisor=request.user,
+                soil_quality=soil_quality,
+                soil_type=soil_type,  # Inherit from farm
+                is_active=True,
+            )
+            fields_created += 1
+            i += 1
+        
+        # Update farm calculations
+        farm.update_calculated_fields()
+        farm.save()
+        
+        messages.success(request, f'Farm "{name}" added successfully with {fields_created} fields!')
+        return redirect('monitoring:farm_management')
+    
+    # For GET, just redirect (modal handled client-side)
+    return redirect('monitoring:farm_management')
+import logging
+
+logger = logging.getLogger(__name__)
 
 @login_required
-@require_http_methods(["POST"])  # Only accept POST requests
-def farm_add(request):
-    """Handle adding a new farm via modal form submission"""
-    form = FarmForm(request.POST)
-    
-    if form.is_valid():
-        try:
-            farm = form.save(commit=False)
-            farm.manager = request.user
-            farm.is_active = True  # Set as active by default
-            farm.save()
-            
-            # Handle crop types from checkboxes if needed
-            crop_types = request.POST.getlist('crop_types')
-            if crop_types:
-                # Add crop types to notes or handle them as needed
-                if farm.notes:
-                    farm.notes += f"\nCrops: {', '.join(crop_types)}"
-                else:
-                    farm.notes = f"Crops: {', '.join(crop_types)}"
-                farm.save()
-            
-            messages.success(request, f"Farm '{farm.name}' added successfully!")
-            
-        except Exception as e:
-            messages.error(request, f"Error adding farm: {str(e)}")
-    else:
-        # Form has validation errors
-        for field, errors in form.errors.items():
-            for error in errors:
-                if field == '__all__':
-                    messages.error(request, f"Error: {error}")
-                else:
-                    field_name = form.fields[field].label or field.replace('_', ' ').title()
-                    messages.error(request, f"{field_name}: {error}")
-    
-    # Always redirect back to farm management page
-    return redirect('monitoring:farm_management')
+@require_http_methods(["DELETE"])
+def farm_delete(request, farm_id):
+    """
+    AJAX view to delete a farm.
+    """
+    try:
+        user_profile = UserProfile.objects.get(user=request.user)
+        farm = get_object_or_404(Farm, id=farm_id)
+        
+        if not user_profile.can_access_object(farm):
+            return JsonResponse({'success': False, 'error': 'Permission denied.'}, status=403)
+        
+        farm_name = farm.name
+        farm.delete()
+        return JsonResponse({'success': True, 'message': f'Farm "{farm_name}" deleted successfully.'})
+        
+    except UserProfile.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'User profile not found.'}, status=404)
+    except Exception as e:
+        logger.error(f"Error deleting farm {farm_id}: {str(e)}")
+        return JsonResponse({'success': False, 'error': f'Failed to delete farm: {str(e)}'}, status=500)
 
 @login_required
 def farm_detail(request, farm_id):
-    """View individual farm details"""
+    """
+    AJAX view to return farm details as JSON for modal display.
+    """
     try:
-        farm = Farm.objects.get(id=farm_id, manager=request.user, is_active=True)
+        user_profile = UserProfile.objects.get(user=request.user)
+        farm = get_object_or_404(Farm, id=farm_id)
         
-        # Get farm statistics
-        farm_fields = farm.field_set.all()
-        field_count = farm_fields.count()
+        if not user_profile.can_access_object(farm):
+            return JsonResponse({'success': False, 'error': 'Permission denied.'}, status=403)
         
-        farm_area_hectares = farm_fields.aggregate(
-            total=Sum('area_hectares')
-        )['total'] or farm.total_area_hectares
+        # Get fields data
+        fields_data = []
+        for field in farm.field_set.all():
+            fields_data.append({
+                'name': field.name,
+                'area_hectares': str(field.area_hectares),
+                'crop_type': field.crop.name if field.crop else 'Not specified',
+                'soil_quality': field.soil_quality or 'Not specified',
+                'planting_date': field.planting_date.strftime('%Y-%m-%d') if field.planting_date else 'Not set',
+                'expected_harvest_date': field.expected_harvest_date.strftime('%Y-%m-%d') if field.expected_harvest_date else 'Not set',
+            })
         
-        total_area_acres = farm_area_hectares * Decimal('2.47105')
-        
-        total_harvested = HarvestRecord.objects.filter(
-            field__farm=farm
-        ).aggregate(total=Sum('quantity_tons'))['total'] or Decimal('0')
-        
-        avg_yield = total_harvested / total_area_acres if total_area_acres > 0 else Decimal('0')
-        
-        farm.calculated_field_count = field_count
-        farm.calculated_total_area = total_area_acres
-        farm.calculated_total_harvested = total_harvested
-        farm.calculated_avg_yield = avg_yield
-        
-        context = {
-            'farm': farm,
-            'fields': farm_fields
+        data = {
+            'success': True,
+            'farm': {
+                'name': farm.name,
+                'location': farm.location or 'Not specified',
+                'calculated_total_area': float(farm.calculated_total_area or 0),
+                'calculated_field_count': farm.calculated_field_count or 0,
+                'is_active': farm.is_active,
+                'notes': farm.notes or 'None',
+                'soil_type': farm.soil_type or 'Not specified',
+                'established_date': farm.established_date.strftime('%Y-%m-%d') if farm.established_date else 'Not set',
+                'fields': fields_data,
+                'crop_types': list(farm.crop_types.values_list('name', flat=True)) if hasattr(farm, 'crop_types') else [],
+            }
         }
-        return render(request, 'monitoring/farm_detail.html', context)
+        return JsonResponse(data)
         
-    except Farm.DoesNotExist:
-        messages.error(request, "Farm not found or you don't have permission to view it.")
-        return redirect('monitoring:farm_management')
+    except UserProfile.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'User profile not found.'}, status=404)
+    except Exception as e:
+        logger.error(f"Error getting farm details {farm_id}: {str(e)}")
+        return JsonResponse({'success': False, 'error': f'Failed to load farm details: {str(e)}'}, status=500)
 
 @login_required
 def farm_edit(request, farm_id):
-    """Edit farm details"""
+    """
+    Edit farm via AJAX. Handles GET (pre-populate form) and POST (update).
+    """
     try:
-        farm = Farm.objects.get(id=farm_id, manager=request.user, is_active=True)
+        user_profile = UserProfile.objects.get(user=request.user)
+        farm = get_object_or_404(Farm, id=farm_id)
         
-        if request.method == "POST":
-            form = FarmForm(request.POST, instance=farm)
-            if form.is_valid():
-                updated_farm = form.save(commit=False)
-                updated_farm.manager = request.user
-                updated_farm.save()
-                
-                # Handle crop types
-                crop_types = request.POST.getlist('crop_types')
-                if crop_types:
-                    # Update crop types in notes
-                    base_notes = updated_farm.notes.split('\nCrops:')[0] if updated_farm.notes else ""
-                    updated_farm.notes = f"{base_notes}\nCrops: {', '.join(crop_types)}"
-                    updated_farm.save()
-                
-                messages.success(request, f"Farm '{updated_farm.name}' updated successfully!")
-                return redirect('monitoring:farm_management')
-            else:
-                for field, errors in form.errors.items():
-                    for error in errors:
-                        field_name = form.fields[field].label or field.replace('_', ' ').title()
-                        messages.error(request, f"{field_name}: {error}")
-        else:
-            form = FarmForm(instance=farm)
+        if not user_profile.can_access_object(farm):
+            return JsonResponse({'success': False, 'error': 'Permission denied.'}, status=403)
         
-        context = {
-            'form': form,
-            'farm': farm,
-            'editing': True
+        if request.method == 'POST':
+            # Update farm basic info
+            farm.name = request.POST.get('name', '').strip()
+            if not farm.name:
+                return JsonResponse({'success': False, 'error': 'Farm name is required.'}, status=400)
+                
+            farm.location = request.POST.get('location', '').strip()
+            farm.soil_type = request.POST.get('soil_type', '').strip()
+            farm.notes = request.POST.get('notes', '').strip()
+            
+            # Handle area
+            total_area_input = request.POST.get('total_area_hectares', '').strip()
+            if total_area_input:
+                try:
+                    farm.total_area_hectares = Decimal(total_area_input)
+                except (ValueError, TypeError):
+                    return JsonResponse({'success': False, 'error': 'Invalid area value.'}, status=400)
+            
+            # Handle dates
+            planting_date = request.POST.get('planting_date', '').strip()
+            if planting_date:
+                farm.established_date = planting_date
+                
+            farm.save()
+            
+            # Update crop types if model supports it
+            crop_types = request.POST.getlist('crop_types')
+            if hasattr(farm, 'crop_types'):
+                try:
+                    farm.crop_types.set([CropType.objects.get(name=ct) for ct in crop_types if CropType.objects.filter(name=ct).exists()])
+                except Exception as e:
+                    logger.warning(f"Could not update crop types: {e}")
+            
+            # Update fields - more robust parsing
+            farm.field_set.all().delete()  # Clear existing
+            
+            # Parse field data from POST
+            field_data = {}
+            for key, value in request.POST.items():
+                if key.startswith('fields[') and '][' in key:
+                    # Extract field index and field name
+                    parts = key.replace('fields[', '').split('][')
+                    if len(parts) == 2:
+                        field_index = parts[0]
+                        field_attr = parts[1].replace(']', '')
+                        
+                        if field_index not in field_data:
+                            field_data[field_index] = {}
+                        field_data[field_index][field_attr] = value.strip()
+            
+            # Create fields
+            for field_index, data in field_data.items():
+                field_name = data.get('name', '')
+                area_str = data.get('area_hectares', '0')
+                crop_type_str = data.get('crop_type', '')
+                
+                if field_name and area_str:
+                    try:
+                        area_hectares = Decimal(area_str)
+                        if area_hectares > 0:
+                            # Get or create crop
+                            crop = None
+                            if crop_type_str:
+                                crop, _ = Crop.objects.get_or_create(
+                                    name=crop_type_str, 
+                                    defaults={'expected_yield_per_hectare': Decimal('5.00')}
+                                )
+                            
+                            # Create field
+                            farm.field_set.create(
+                                name=field_name,
+                                crop=crop,
+                                area_hectares=area_hectares,
+                                planting_date=data.get('planting_date') or None,
+                                expected_harvest_date=data.get('expected_harvest_date') or None,
+                                supervisor=request.user,
+                                soil_quality=data.get('soil_quality', ''),
+                                soil_type=farm.soil_type,
+                            )
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Invalid field data for field {field_index}: {e}")
+                        continue
+            
+            # Update calculated fields
+            if hasattr(farm, 'update_calculated_fields'):
+                farm.update_calculated_fields()
+            
+            return JsonResponse({'success': True, 'message': f'Farm "{farm.name}" updated successfully.'})
+        
+        # GET request - return data for form population
+        data = {
+            'success': True,
+            'farm': {
+                'name': farm.name,
+                'location': farm.location or '',
+                'soil_type': farm.soil_type or '',
+                'total_area_hectares': str(farm.total_area_hectares or ''),
+                'established_date': farm.established_date.strftime('%Y-%m-%d') if farm.established_date else '',
+                'notes': farm.notes or '',
+                'crop_types': list(farm.crop_types.values_list('name', flat=True)) if hasattr(farm, 'crop_types') else [],
+                'fields': [
+                    {
+                        'name': f.name,
+                        'area_hectares': str(f.area_hectares),
+                        'crop_type': f.crop.name if f.crop else '',
+                        'soil_quality': f.soil_quality or '',
+                        'planting_date': f.planting_date.strftime('%Y-%m-%d') if f.planting_date else '',
+                        'expected_harvest_date': f.expected_harvest_date.strftime('%Y-%m-%d') if f.expected_harvest_date else '',
+                    } for f in farm.field_set.all()
+                ],
+            }
         }
-        return render(request, 'monitoring/farm_edit.html', context)
+        return JsonResponse(data)
         
-    except Farm.DoesNotExist:
-        messages.error(request, "Farm not found or you don't have permission to edit it.")
-        return redirect('monitoring:farm_management')
-
-@login_required
-def farm_delete(request, farm_id):
-    """Soft delete a farm (set is_active=False)"""
-    try:
-        farm = Farm.objects.get(id=farm_id, manager=request.user, is_active=True)
-        farm_name = farm.name
-        
-        # Soft delete - set is_active to False instead of actually deleting
-        farm.is_active = False
-        farm.save()
-        
-        messages.success(request, f"Farm '{farm_name}' has been deactivated successfully!")
-        
-    except Farm.DoesNotExist:
-        messages.error(request, "Farm not found or you don't have permission to delete it.")
+    except UserProfile.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'User profile not found.'}, status=404)
+    except Exception as e:
+        logger.error(f"Error editing farm {farm_id}: {str(e)}")
     
-    return redirect('monitoring:farm_management')
 
-# Alternative hard delete function if needed
-@login_required
-def farm_hard_delete(request, farm_id):
-    """Permanently delete a farm (use with caution)"""
-    try:
-        farm = Farm.objects.get(id=farm_id, manager=request.user)
-        farm_name = farm.name
-        farm.delete()
-        
-        messages.success(request, f"Farm '{farm_name}' deleted permanently!")
-        
-    except Farm.DoesNotExist:
-        messages.error(request, "Farm not found or you don't have permission to delete it.")
-    
-    return redirect('monitoring:farm_management')
 # ========================
 # HARVEST TRACKING VIEWS
 # ========================
@@ -2072,71 +2206,385 @@ def low_stock_alert(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 # ========================
-# REPORTING VIEWS
+# REPORTS VIEWS (Updated for InventoryItem Model)
 # ========================
+
+import os
+import csv
+from io import StringIO
+from datetime import datetime
+from decimal import Decimal
+import tempfile
+from django.shortcuts import render, get_object_or_404, redirect
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.http import FileResponse, JsonResponse
+from django.utils import timezone
+from django.db.models import Count, Sum, Avg
+from django.core.files import File
+from django.conf import settings
+
+# For Excel
+try:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
+
+# For PDF
+try:
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+    from reportlab.lib import colors
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.pagesizes import letter
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+
+# Models (Updated: Add InventoryItem, StorageLocation, CropType, InventoryTransaction)
+from .models import (
+    ReportTemplate, GeneratedReport, ReportActivityLog,
+    HarvestRecord, Field, Farm, Inventory, Crop, UserProfile,
+    InventoryItem, StorageLocation, CropType, InventoryTransaction  # New for inventory reports
+)
 
 @login_required
 def reports(request):
     """Main reports page – handles list, generate, and recent reports"""
+    profile = request.user.userprofile
+    if not profile.can_generate_reports:
+        messages.error(request, "You don't have permission to generate reports.")
+        return redirect('dashboard')
+
     templates = ReportTemplate.objects.all()
     recent_reports = GeneratedReport.objects.order_by("-generated_at")[:5]
 
+    # Metrics
+    available_report_types = len(ReportTemplate.objects.values('report_type').distinct())
+    ready_for_download = GeneratedReport.objects.filter(file__isnull=False).count()
+    this_month_reports = GeneratedReport.objects.filter(
+        generated_at__month=timezone.now().month,
+        generated_at__year=timezone.now().year
+    ).count()
+
+    # Data coverage: % of fields with at least one harvest
+    fields_with_harvest = Field.objects.annotate(h_count=Count('harvestrecord_set')).filter(h_count__gt=0).count()
+    total_fields = Field.objects.count()
+    data_coverage = (fields_with_harvest / total_fields * 100) if total_fields > 0 else 0
+
     if request.method == "POST":
-        template_id = request.POST.get("template_id")
+        report_type = request.POST.get("report_type")
         from_date = request.POST.get("from_date")
         to_date = request.POST.get("to_date")
-        export_format = request.POST.get("export_format", "pdf")
+        export_format = request.POST.get("export_format", "csv")
 
-        if not template_id:
-            messages.error(request, "Please select a report template.")
+        if not all([report_type, from_date, to_date]):
+            messages.error(request, "Please provide all required fields.")
         else:
-            template = get_object_or_404(ReportTemplate, id=template_id)
+            try:
+                from_date = timezone.datetime.strptime(from_date, '%Y-%m-%d').date()
+                to_date = timezone.datetime.strptime(to_date, '%Y-%m-%d').date()
+                if from_date > to_date:
+                    messages.error(request, "From date must be before to date.")
+                else:
+                    filename, file_path = generate_real_report(report_type, from_date, to_date, export_format, request.user)
+                    
+                    template = ReportTemplate.objects.filter(report_type=report_type).first()
+                    report_name = f"{report_type.replace('_', ' ').title()} Report"
+                    
+                    report = GeneratedReport.objects.create(
+                        template=template,
+                        name=report_name,
+                        report_type=report_type,
+                        generated_by=request.user,
+                        from_date=from_date,
+                        to_date=to_date,
+                        export_format=export_format,
+                        file=filename,
+                    )
 
-            # Simulate generated file (replace with real logic later)
-            filename = f"{template.report_type}_{timezone.now().strftime('%Y%m%d%H%M%S')}.{export_format}"
-            file_path = os.path.join("media/reports", filename)
+                    ReportActivityLog.objects.create(
+                        user=request.user,
+                        report=report,
+                        action="generate",
+                    )
 
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-            with open(file_path, "w") as f:
-                f.write(f"Report: {template.title}\n")
-                f.write(f"From: {from_date} To: {to_date}\n")
-                f.write("Sample report content here...\n")
+                    messages.success(request, f"{report_name} generated successfully!")
+                    
+                    if request.POST.get('ajax'):
+                        return JsonResponse({
+                            'success': True,
+                            'message': 'Report generated!',
+                            'download_url': f'/reports/download/{report.id}/'
+                        })
+                    
+                    recent_reports = GeneratedReport.objects.order_by("-generated_at")[:5]
 
-            report = GeneratedReport.objects.create(
-                template=template,
-                name=template.title,
-                report_type=template.report_type,
-                generated_by=request.user,
-                from_date=from_date,
-                to_date=to_date,
-                export_format=export_format,
-                file=file_path.replace("media/", ""),  # relative path
-            )
-
-            ReportActivityLog.objects.create(
-                user=request.user,
-                report=report,
-                action="generate",
-            )
-
-            messages.success(request, f"{template.title} generated successfully!")
-
-            # Refresh recent reports after generation
-            recent_reports = GeneratedReport.objects.order_by("-generated_at")[:5]
+            except Exception as e:
+                error_msg = f"Error generating report: {str(e)}"
+                messages.error(request, error_msg)
+                print(f"Report error: {error_msg}")  # Log to console
+                if request.POST.get('ajax'):
+                    return JsonResponse({
+                        'success': False,
+                        'error': error_msg
+                    })
 
     context = {
         "templates": templates,
         "recent_reports": recent_reports,
+        "available_report_types": available_report_types,
+        "ready_for_download": ready_for_download,
+        "this_month_reports": this_month_reports,
+        "data_coverage": data_coverage,
     }
     return render(request, "monitoring/reports.html", context)
+
+
+def generate_real_report(report_type, from_date, to_date, export_format, user):
+    """Generate real report file based on type and format"""
+    timestamp = timezone.now().strftime('%Y%m%d%H%M%S')
+    filename = f"{report_type}_{timestamp}.{export_format}"
+    media_dir = os.path.join(settings.MEDIA_ROOT, "reports")
+    os.makedirs(media_dir, exist_ok=True)
+    file_path = os.path.join(media_dir, filename)
+
+    data = fetch_report_data(report_type, from_date, to_date, user)
+    print(f"Report {report_type}: {len(data)} rows fetched")  # Debug
+
+    if export_format == "csv":
+        generate_csv(file_path, data, report_type)
+    elif export_format == "excel" and EXCEL_AVAILABLE:
+        generate_excel(file_path, data, report_type)
+    elif export_format == "pdf" and PDF_AVAILABLE:
+        generate_pdf(file_path, data, report_type, from_date, to_date)
+    else:
+        generate_csv(file_path, data, report_type)
+        filename = filename.replace('.xlsx', '.csv').replace('.pdf', '.csv')
+
+    return filename, file_path
+
+
+def fetch_report_data(report_type, from_date, to_date, user=None):
+    """Fetch real data from DB based on report type, respecting user permissions"""
+    profile = user.userprofile if user else None
+
+    if report_type == "monthly_harvest_summary":
+        harvests = HarvestRecord.objects.filter(harvest_date__range=[from_date, to_date])
+        if profile:
+            harvests = profile.get_queryset_for_model('HarvestRecord')
+        harvests = harvests.select_related('field__farm', 'field__crop', 'harvested_by')
+        return list(harvests.values('field__farm__name', 'field__name', 'field__crop__name',
+                                    'harvest_date', 'quantity_tons', 'quality_grade'))
+
+    elif report_type == "yield_performance_report":
+        fields = Field.objects.filter(expected_harvest_date__range=[from_date, to_date], is_active=True)
+        if profile:
+            fields = profile.get_queryset_for_model('Field')
+        fields = fields.select_related('farm', 'crop').prefetch_related('harvestrecord_set')
+        data = []
+        for field in fields:
+            total_harvested = field.total_harvested
+            expected = field.expected_yield_total
+            efficiency = field.field_efficiency
+            data.append({
+                'farm': field.farm.name,
+                'field': field.name,
+                'crop': field.crop.name,
+                'area_hectares': field.area_hectares,
+                'total_harvested': total_harvested,
+                'expected_yield': expected,
+                'efficiency': f"{efficiency:.1f}%"
+            })
+        return data
+
+    elif report_type == "inventory_status_report":
+        # FIXED: Use InventoryItem model
+        inventory_items = InventoryItem.objects.filter(date_stored__range=[from_date, to_date])
+        if profile:
+            # Note: Add 'InventoryItem' to UserProfile.get_queryset_for_model if not there
+            inventory_items = profile.get_queryset_for_model('InventoryItem')
+        inventory_items = inventory_items.select_related('crop_type', 'storage_location')
+        data = []
+        for item in inventory_items:
+            # Map fields to match old Inventory (for consistency)
+            data.append({
+                'crop_name': item.crop_type.display_name if item.crop_type else 'Unknown',
+                'quantity_tons': item.quantity,  # quantity in InventoryItem
+                'storage_location': item.storage_location.name if item.storage_location else 'Unknown',
+                'storage_condition': item.status.title() if hasattr(item, 'status') else 'Good',  # Derive from status
+                'quality_grade': item.quality_grade,
+                'date_stored': item.date_stored,
+                'is_expired': item.is_expired,
+                'days_until_expiry': item.days_until_expiry or 0,
+            })
+        print(f"Inventory report: {len(data)} rows")  # Debug
+        return data
+
+    elif report_type == "farm_productivity_analysis":
+        farms = Farm.objects.filter(field__expected_harvest_date__range=[from_date, to_date]).distinct()
+        if profile:
+            farms = profile.get_queryset_for_model('Farm')
+        farms = farms.select_related('manager').prefetch_related('field_set__crop', 'field_set__harvestrecord_set')
+        data = []
+        for farm in farms:
+            data.append({
+                'name': farm.name,
+                'total_area': farm.calculated_total_area,
+                'total_harvested': farm.total_harvested_this_year,
+                'efficiency': f"{farm.efficiency_percentage:.1f}%",
+                'primary_crop': farm.primary_crop,
+                'is_underperforming': farm.is_underperforming
+            })
+        return data
+
+    elif report_type == "crop_performance_report":
+        crops = Crop.objects.filter(field__harvestrecord__harvest_date__range=[from_date, to_date]).distinct()
+        data = []
+        for crop in crops:
+            total_yield = HarvestRecord.objects.filter(
+                field__crop=crop, harvest_date__range=[from_date, to_date]
+            ).aggregate(total=Sum('quantity_tons'))['total'] or Decimal('0')
+            avg_quality = HarvestRecord.objects.filter(
+                field__crop=crop, harvest_date__range=[from_date, to_date]
+            ).aggregate(avg=Avg('quality_score'))['avg'] or 0
+            data.append({
+                'name': crop.name,
+                'type': crop.crop_type,
+                'total_yield': total_yield,
+                'avg_quality': f"{avg_quality:.1f}/4.0",
+                'fields_planted': crop.field_set.count()
+            })
+        return data
+
+    elif report_type == "financial_summary_report":
+        # FIXED: Use InventoryItem + InventoryTransaction for value (assume unit_price from transaction or add field)
+        transactions = InventoryTransaction.objects.filter(
+            timestamp__date__range=[from_date, to_date],
+            action_type='ADD'  # Additions for revenue
+        ).select_related('inventory_item__crop_type', 'inventory_item__storage_location', 'user')
+        data = []
+        total_revenue = Decimal('0')
+        for trans in transactions:
+            item = trans.inventory_item
+            # Assume unit_price from notes or add field to InventoryItem; fallback to default $500/ton
+            unit_price = Decimal('500.00')  # Or extract from trans.notes if stored
+            value = unit_price * abs(trans.quantity)
+            total_revenue += value
+            data.append({
+                'farm': 'Anuoluwapo Farm',  # Derive from user or add FK
+                'crop': item.crop_type.display_name,
+                'quantity': abs(trans.quantity),
+                'unit_price': unit_price,
+                'total_value': value
+            })
+        data.append({'summary': 'Total Revenue', 'total_value': total_revenue})
+        return data
+
+    return []
+
+
+# generate_csv, generate_excel, generate_pdf, download_report functions remain the same as previous version
+# (Omit for brevity; copy from last views.py artifact)
+
+def generate_csv(file_path, data, report_type):
+    """Generate CSV file"""
+    with open(file_path, 'w', newline='', encoding='utf-8') as f:
+        if isinstance(data, list) and data:
+            if isinstance(data[0], dict):
+                writer = csv.DictWriter(f, fieldnames=data[0].keys())
+                writer.writeheader()
+                writer.writerows(data)
+            else:
+                writer = csv.writer(f)
+                writer.writerow(data[0].keys()) if data[0] else None
+                for row in data:
+                    writer.writerow(row.values() if hasattr(row, 'values') else row)
+        else:
+            f.write(f"No data available for {report_type} in the selected date range.\n")
+
+
+def generate_excel(file_path, data, report_type):
+    """Generate Excel file (requires openpyxl)"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = report_type.replace('_', ' ').title()
+
+    if data:
+        if isinstance(data[0], dict):
+            headers = list(data[0].keys())
+            for col, header in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col, value=header)
+                cell.font = Font(bold=True)
+                cell.fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
+            for row_idx, row_data in enumerate(data, 2):
+                for col, value in enumerate(row_data.values(), 1):
+                    ws.cell(row=row_idx, column=col, value=value)
+            # Add totals for numeric fields
+            if 'quantity_tons' in headers or 'total_value' in headers:
+                total_row = len(data) + 2
+                ws.cell(row=total_row, column=1, value="Total").font = Font(bold=True)
+                for col, header in enumerate(headers, 1):
+                    if header in ('quantity_tons', 'total_value'):
+                        ws.cell(row=total_row, column=col, value=f"=SUM({ws.cell(row=2, column=col).coordinate}:{ws.cell(row=total_row-1, column=col).coordinate})")
+                        ws.cell(row=total_row, column=col).font = Font(bold=True)
+    else:
+        ws.cell(row=1, column=1, value=f"No data available for {report_type} in the selected date range.")
+    wb.save(file_path)
+
+
+def generate_pdf(file_path, data, report_type, from_date, to_date):
+    """Generate PDF file with proper tables (requires reportlab)"""
+    doc = SimpleDocTemplate(file_path, pagesize=letter)
+    elements = []
+
+    elements.append(Paragraph(f"{report_type.replace('_', ' ').title()} Report", 
+                             ParagraphStyle(name='Title', fontSize=14, spaceAfter=10)))
+    elements.append(Paragraph(f"Date Range: {from_date.strftime('%B %d, %Y')} to {to_date.strftime('%B %d, %Y')}", 
+                             ParagraphStyle(name='Subtitle', fontSize=10, spaceAfter=20)))
+
+    if data:
+        headers = list(data[0].keys()) if isinstance(data[0], dict) else ['Data']
+        table_data = [headers]
+        for row in data[:50]:
+            if isinstance(row, dict):
+                row_values = [str(v)[:50] for v in row.values()]
+            else:
+                row_values = [str(v)[:50] for v in row]
+            table_data.append(row_values)
+
+        table = Table(table_data)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+        ]))
+        elements.append(table)
+    else:
+        elements.append(Paragraph(f"No data available for {report_type} in the selected date range.", 
+                                 ParagraphStyle(name='Empty', fontSize=10)))
+
+    print(f"PDF generated with {len(data)} rows")  # Debug
+    doc.build(elements)
 
 
 @login_required
 def download_report(request, report_id):
     """Download previously generated report"""
     report = get_object_or_404(GeneratedReport, id=report_id)
+    
+    profile = request.user.userprofile
+    if not (profile.role == 'admin' or report.generated_by == request.user):
+        messages.error(request, "You don't have permission to download this report.")
+        return redirect("reports")
 
-    file_path = os.path.join("media", str(report.file))
+    file_path = os.path.join(settings.MEDIA_ROOT, "reports", str(report.file))
     if not os.path.exists(file_path):
         messages.error(request, "Report file not found.")
         return redirect("reports")
@@ -2147,9 +2595,13 @@ def download_report(request, report_id):
         action="download",
     )
 
-    from django.http import FileResponse
-    return FileResponse(open(file_path, "rb"), as_attachment=True, filename=os.path.basename(file_path))
-
+    mime_type = 'application/pdf' if report.export_format == 'pdf' else \
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' if report.export_format == 'excel' else \
+                'text/csv'
+    
+    response = FileResponse(open(file_path, "rb"), as_attachment=True, filename=report.file.name)
+    response['Content-Type'] = mime_type
+    return response
 # ========================
 # NOTIFICATIONS AND MISCELLANEOUS VIEWS
 # ========================
