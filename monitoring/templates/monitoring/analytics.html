@@ -347,17 +347,17 @@
 {% endblock %}
 
 {% block content %}
-<!-- Key Metrics Cards -->
+<!-- Key Metrics Cards (Updated for Real Data) -->
 <div class="analytics-metrics">
     <div class="analytics-metric-card efficiency">
         <div class="metric-header">
             <span class="metric-title">Avg Efficiency</span>
             <div class="metric-icon">📊</div>
         </div>
-        <div class="metric-main-value">92.0%</div>
+        <div class="metric-main-value">{{ avg_efficiency }}%</div>
         <div class="metric-change positive">
             <i class="fas fa-arrow-up"></i>
-            +2.3% from last season
+            {% if has_data %}+{{ avg_efficiency|floatformat:1 }}% overall{% else %}No data{% endif %}
         </div>
     </div>
     
@@ -366,8 +366,8 @@
             <span class="metric-title">Top Performer</span>
             <div class="metric-icon">🏆</div>
         </div>
-        <div class="metric-main-value">Golden Fields</div>
-        <div class="metric-subtitle">98.2% efficiency</div>
+        <div class="metric-main-value">{{ top_performer.name }}</div>
+        <div class="metric-subtitle">{{ top_performer.efficiency }}% efficiency</div>
     </div>
     
     <div class="analytics-metric-card predicted">
@@ -375,7 +375,7 @@
             <span class="metric-title">Predicted Harvest</span>
             <div class="metric-icon">📅</div>
         </div>
-        <div class="metric-main-value">1,420 tons</div>
+        <div class="metric-main-value">{{ predicted_harvest }} tons</div>
         <div class="metric-subtitle">Next 2 weeks</div>
     </div>
     
@@ -384,224 +384,74 @@
             <span class="metric-title">Underperforming</span>
             <div class="metric-icon">⚠️</div>
         </div>
-        <div class="metric-main-value">2</div>
+        <div class="metric-main-value">{{ underperforming_count }}</div>
         <div class="metric-subtitle">Farms need attention</div>
     </div>
 </div>
 
-<!-- Yield Performance Analysis -->
+<!-- Farm Efficiency Ranking (Dynamic from Context) -->
 <div class="chart-section">
     <div class="chart-header">
         <div>
-            <h3 class="chart-title">Yield Performance Analysis</h3>
-            <p class="chart-subtitle">Expected vs actual yield by farm</p>
-        </div>
-    </div>
-    <div class="chart-wrapper">
-        <canvas id="yieldPerformanceChart"></canvas>
-    </div>
-</div>
-
-<!-- Seasonal Trends -->
-<div class="chart-section">
-    <div class="chart-header">
-        <div>
-            <h3 class="chart-title">Seasonal Trends</h3>
-            <p class="chart-subtitle">Multi-year harvest comparison</p>
-        </div>
-        <select class="year-selector" id="yearSelector">
-            <option value="2024">2024</option>
-            <option value="2023">2023</option>
-            <option value="2022">2022</option>
-        </select>
-    </div>
-    <div class="chart-wrapper">
-        <canvas id="seasonalTrendsChart"></canvas>
-    </div>
-</div>
-
-<!-- Performance vs Weather Correlation -->
-<div class="chart-section">
-    <div class="chart-header">
-        <div>
-            <h3 class="chart-title">Performance vs Weather Correlation</h3>
-            <p class="chart-subtitle">Monthly performance influenced by weather conditions</p>
-        </div>
-    </div>
-    <div class="chart-wrapper weather-chart-wrapper">
-        <canvas id="weatherCorrelationChart"></canvas>
-    </div>
-</div>
-
-<!-- Bottom sections: Farm Rankings and Predictions -->
-<div class="bottom-sections">
-    <!-- Farm Efficiency Ranking -->
-    <div class="chart-section">
-        <div class="chart-header">
-            <div>
-                <h3 class="chart-title">Farm Efficiency Ranking</h3>
-                <p class="chart-subtitle">Performance ranking by efficiency percentage</p>
-            </div>
-        </div>
-        
-        <div class="ranking-item">
-            <div class="ranking-left">
-                <div class="ranking-number top">
-                    #1
-                </div>
-                <div class="ranking-info">
-                    <div class="ranking-name">Golden Fields</div>
-                    <div class="ranking-crop">Corn</div>
-                </div>
-            </div>
-            <div class="ranking-right">
-                <div class="ranking-percentage">98.2%</div>
-                <div class="ranking-yield">2750 / 2800 tons</div>
-            </div>
-        </div>
-
-        <div class="ranking-item">
-            <div class="ranking-left">
-                <div class="ranking-number top">
-                    #2
-                </div>
-                <div class="ranking-info">
-                    <div class="ranking-name">Green Valley</div>
-                    <div class="ranking-crop">Wheat</div>
-                </div>
-            </div>
-            <div class="ranking-right">
-                <div class="ranking-percentage">96.0%</div>
-                <div class="ranking-yield">2650 / 2500 tons</div>
-            </div>
-        </div>
-
-        <div class="ranking-item">
-            <div class="ranking-left">
-                <div class="ranking-number top">
-                    #3
-                </div>
-                <div class="ranking-info">
-                    <div class="ranking-name">Meadow Farm</div>
-                    <div class="ranking-crop">Soybeans</div>
-                </div>
-            </div>
-            <div class="ranking-right">
-                <div class="ranking-percentage">92.9%</div>
-                <div class="ranking-yield">2250 / 2100 tons</div>
-            </div>
-        </div>
-
-        <div class="ranking-item">
-            <div class="ranking-left">
-                <div class="ranking-number">
-                    #4
-                </div>
-                <div class="ranking-info">
-                    <div class="ranking-name">Riverside</div>
-                    <div class="ranking-crop">Rice</div>
-                </div>
-            </div>
-            <div class="ranking-right">
-                <div class="ranking-percentage">88.5%</div>
-                <div class="ranking-yield">2580 / 2600 tons</div>
-            </div>
-        </div>
-
-        <div class="ranking-item">
-            <div class="ranking-left">
-                <div class="ranking-number">
-                    #5
-                </div>
-                <div class="ranking-info">
-                    <div class="ranking-name">Sunny Acres</div>
-                    <div class="ranking-crop">Cassava</div>
-                </div>
-            </div>
-            <div class="ranking-right">
-                <div class="ranking-percentage">85.3%</div>
-                <div class="ranking-yield">2180 / 2200 tons</div>
-            </div>
+            <h3 class="chart-title">Farm Efficiency Ranking</h3>
+            <p class="chart-subtitle">Performance ranking by efficiency percentage</p>
         </div>
     </div>
     
-    <!-- Upcoming Harvest Predictions -->
-    <div class="chart-section">
-        <div class="chart-header">
-            <div>
-                <h3 class="chart-title">Upcoming Harvest Predictions</h3>
-                <p class="chart-subtitle">AI-powered yield predictions</p>
+    {% for ranking in farm_rankings %}
+    <div class="ranking-item">
+        <div class="ranking-left">
+            <div class="ranking-number {% if forloop.counter0 < 3 %}top{% endif %}">
+                #{{ forloop.counter }}
+            </div>
+            <div class="ranking-info">
+                <div class="ranking-name">{{ ranking.name }}</div>
+                <div class="ranking-crop">{{ ranking.primary_crop }}</div>
             </div>
         </div>
-        
-        <div class="prediction-item">
-            <div class="prediction-header">
-                <div class="prediction-crop">Corn - North Field</div>
-                <div class="prediction-amount">245 tons</div>
-            </div>
-            <div class="prediction-details">
-                <div class="prediction-date">Expected: 2024-08-25</div>
-                <div class="prediction-confidence">
-                    94% confidence
-                </div>
-            </div>
+        <div class="ranking-right">
+            <div class="ranking-percentage">{{ ranking.efficiency }}%</div>
+            <div class="ranking-yield">{{ ranking.actual_yield }} / {{ ranking.expected_yield }} tons</div>
         </div>
+    </div>
+    {% empty %}
+    <div class="ranking-item" style="text-align: center; padding: 40px; color: #6b7280;">
+        <i class="fas fa-chart-line" style="font-size: 2rem; margin-bottom: 10px; display: block;"></i>
+        No farm data available yet
+    </div>
+    {% endfor %}
+</div>
 
-        <div class="prediction-item">
-            <div class="prediction-header">
-                <div class="prediction-crop">Wheat - East Plot</div>
-                <div class="prediction-amount">320 tons</div>
-            </div>
-            <div class="prediction-details">
-                <div class="prediction-date">Expected: 2024-08-28</div>
-                <div class="prediction-confidence">
-                    91% confidence
-                </div>
-            </div>
+<!-- Upcoming Harvest Predictions (Dynamic from Context) -->
+<div class="chart-section">
+    <div class="chart-header">
+        <div>
+            <h3 class="chart-title">Upcoming Harvest Predictions</h3>
+            <p class="chart-subtitle">AI-powered yield predictions</p>
         </div>
-
-        <div class="prediction-item">
-            <div class="prediction-header">
-                <div class="prediction-crop">Cassava - Section A</div>
-                <div class="prediction-amount">180 tons</div>
-            </div>
-            <div class="prediction-details">
-                <div class="prediction-date">Expected: 2024-09-02</div>
-                <div class="prediction-confidence medium">
-                    87% confidence
-                </div>
-            </div>
+    </div>
+    
+    {% for pred in harvest_predictions %}
+    <div class="prediction-item">
+        <div class="prediction-header">
+            <div class="prediction-crop">{{ pred.crop }} - {{ pred.field }}</div>
+            <div class="prediction-amount">{{ pred.amount }} tons</div>
         </div>
-
-        <div class="prediction-item">
-            <div class="prediction-header">
-                <div class="prediction-crop">Rice - West Block</div>
-                <div class="prediction-amount">156 tons</div>
-            </div>
-            <div class="prediction-details">
-                <div class="prediction-date">Expected: 2024-09-05</div>
-                <div class="prediction-confidence">
-                    92% confidence
-                </div>
-            </div>
-        </div>
-
-        <div class="prediction-item">
-            <div class="prediction-header">
-                <div class="prediction-crop">Soybeans - Plot 3</div>
-                <div class="prediction-amount">280 tons</div>
-            </div>
-            <div class="prediction-details">
-                <div class="prediction-date">Expected: 2024-09-08</div>
-                <div class="prediction-confidence medium">
-                    89% confidence
-                </div>
+        <div class="prediction-details">
+            <div class="prediction-date">Expected: {{ pred.date|date:"Y-m-d" }}</div>
+            <div class="prediction-confidence {% if pred.confidence < 85 %}medium{% endif %}">
+                {{ pred.confidence }}% confidence
             </div>
         </div>
     </div>
+    {% empty %}
+    <div class="prediction-item" style="text-align: center; padding: 40px; color: #6b7280;">
+        <i class="fas fa-seedling" style="font-size: 2rem; margin-bottom: 10px; display: block;"></i>
+        No upcoming harvests scheduled
+    </div>
+    {% endfor %}
 </div>
 {% endblock %}
-
 {% block extra_js %}
 <!-- Chart.js -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
