@@ -1,62 +1,82 @@
 {% extends 'monitoring/base.html' %}
+{% load static %}
 
 {% block title %}Reports - HarvestPro{% endblock %}
 
 {% block extra_css %}
+<!-- Toastr CSS for green notifications -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css">
 <style>
-    /* Dashboard Metrics */
+    /* Dashboard Metrics - MATCHING analytics.html EXACTLY */
     .metrics {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
         gap: 20px;
         margin-bottom: 30px;
     }
 
     .metric-card {
         background: white;
-        padding: 1.5rem;
+        padding: 20px;
         border-radius: 12px;
         box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         display: flex;
         align-items: center;
         gap: 15px;
-        border-left: 4px solid #3b82f6;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
 
-    .metric-card:nth-child(2) { border-left-color: #10b981; }
-    .metric-card:nth-child(3) { border-left-color: #f59e0b; }
-    .metric-card:nth-child(4) { border-left-color: #8b5cf6; }
+    .metric-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    }
 
     .metric-icon {
         width: 50px;
         height: 50px;
-        border-radius: 12px;
+        border-radius: 10px;
+        background: #f0fdf4; /* Light green bg matching analytics */
+        color: #16a34a; /* Green accent */
         display: flex;
         align-items: center;
         justify-content: center;
         font-size: 1.5rem;
-        color: white;
         flex-shrink: 0;
     }
 
-    .metric-card:nth-child(1) .metric-icon { background: #3b82f6; }
-    .metric-card:nth-child(2) .metric-icon { background: #10b981; }
-    .metric-card:nth-child(3) .metric-icon { background: #f59e0b; }
-    .metric-card:nth-child(4) .metric-icon { background: #8b5cf6; }
+    .metric-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
 
-    .metric-content { flex: 1; }
-    .metric-value { font-size: 2rem; font-weight: bold; color: #1f2937; margin: 5px 0; line-height: 1; }
-    .metric-label { color: #6b7280; font-size: 0.9rem; font-weight: 500; }
-    .metric-change { color: #10b981; font-size: 0.8rem; font-weight: 500; }
+    .metric-label {
+        color: #6b7280;
+        font-size: 0.9rem;
+        margin-bottom: 4px;
+    }
+
+    .metric-value {
+        font-size: 1.8rem;
+        font-weight: bold;
+        color: #1f2937;
+        margin-bottom: 2px;
+    }
+
+    .metric-change {
+        color: #6b7280;
+        font-size: 0.8rem;
+    }
 
     /* Reports specific styles */
     .report-section {
         background: white;
         border-radius: 12px;
-        padding: 24px;
+        padding: 20px;
         box-shadow: 0 2px 10px rgba(0,0,0,0.08);
         border: 1px solid #f1f5f9;
-        margin-bottom: 24px;
+        margin-bottom: 20px;
     }
 
     .report-section h3 {
@@ -95,7 +115,7 @@
     .template-card:hover {
         transform: translateY(-2px);
         box-shadow: 0 8px 25px rgba(0,0,0,0.1);
-        border-color: #3b82f6;
+        border-color: #16a34a; /* Green accent */
     }
 
     .template-card-header {
@@ -135,8 +155,8 @@
     }
 
     .template-frequency {
-        background: #f1f5f9;
-        color: #475569;
+        background: #f0fdf4; /* Light green bg */
+        color: #16a34a; /* Green accent */
         padding: 4px 8px;
         border-radius: 12px;
         font-size: 0.75rem;
@@ -144,7 +164,7 @@
     }
 
     .use-template-btn {
-        background: #3b82f6;
+        background: #16a34a; /* Green accent */
         color: white;
         border: none;
         padding: 8px 16px;
@@ -157,7 +177,7 @@
     }
 
     .use-template-btn:hover {
-        background: #2563eb;
+        background: #15803d;
     }
 
     .form-grid {
@@ -191,8 +211,8 @@
     .form-group input:focus,
     .form-group select:focus {
         outline: none;
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        border-color: #16a34a; /* Green accent */
+        box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.1);
     }
 
     .generate-btn {
@@ -221,41 +241,44 @@
         cursor: not-allowed;
     }
 
-    /* Responsive Design */
+    /* Responsive Design - MATCHED to analytics.html */
     @media (max-width: 1024px) {
         .report-templates-grid {
             grid-template-columns: 1fr;
             gap: 20px;
         }
+        .form-grid {
+            grid-template-columns: 1fr;
+        }
     }
 
     @media (max-width: 768px) {
-        .metrics { 
-            grid-template-columns: 1fr; 
-            gap: 12px; 
-        }
-        
-        .metric-card { 
-            padding: 1rem; 
-            gap: 12px; 
-        }
-        
-        .metric-value { 
-            font-size: 1.5rem; 
-        }
-        
-        .report-section { 
-            padding: 15px; 
-            margin-bottom: 15px; 
-        }
-
-        .report-templates-grid {
-            grid-template-columns: 1fr;
+        .metrics {
+            grid-template-columns: repeat(2, 1fr);
             gap: 15px;
         }
         
-        .form-grid {
-            grid-template-columns: 1fr;
+        .metric-card {
+            padding: 15px;
+            gap: 12px;
+        }
+        
+        .metric-icon {
+            width: 45px;
+            height: 45px;
+            font-size: 1.3rem;
+        }
+        
+        .metric-value {
+            font-size: 1.5rem;
+        }
+        
+        .report-section {
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .report-templates-grid {
             gap: 15px;
         }
         
@@ -267,26 +290,23 @@
     @media (max-width: 480px) {
         .metrics {
             grid-template-columns: 1fr;
-            gap: 12px;
         }
-
+        
         .metric-card {
-            padding: 10px;
+            padding: 12px;
             gap: 8px;
-            flex-direction: column;
-            align-items: flex-start;
         }
-
-        .metric-icon {
-            font-size: 1.8rem;
-        }
-
-        .template-card {
-            padding: 14px;
+        
+        .metric-value {
+            font-size: 1.3rem;
         }
         
         .report-section {
-            padding: 16px;
+            padding: 12px;
+        }
+        
+        .template-card {
+            padding: 14px;
         }
     }
 </style>
@@ -298,6 +318,20 @@
 {% endblock %}
 
 {% block content %}
+<!-- Messages Display - Aligned to analytics -->
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}" style="margin-bottom: 20px; padding: 12px; border-radius: 8px; 
+             {% if message.tags == 'success' %}background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534;{% endif %}
+             {% if message.tags == 'error' %}background: #fef2f2; border: 1px solid #fecaca; color: #dc2626;{% endif %}
+             {% if message.tags == 'warning' %}background: #fffbeb; border: 1px solid #fed7aa; color: #d97706;{% endif %}
+             {% if message.tags == 'info' %}background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8;{% endif %}">
+            <i class="fas fa-info-circle" style="margin-right: 8px;"></i>
+            {{ message }}
+        </div>
+    {% endfor %}
+{% endif %}
+
 <!-- Reports Overview Metrics -->
 <div class="metrics">
     <div class="metric-card">
@@ -344,11 +378,11 @@
         </div>
     </div>
 </div>
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
     <!-- Generate New Report Section -->
     <div class="report-section">
         <h3>
-            <i class="fas fa-plus-circle" style="color: #3b82f6;"></i>
+            <i class="fas fa-plus-circle" style="color: #16a34a;"></i>
             Generate New Report
         </h3>
         <p>Create custom reports based on your data</p>
@@ -395,7 +429,7 @@
     <!-- Report Templates Section -->
     <div class="report-section">
         <h3>
-            <i class="fas fa-th-large" style="color: #10b981;"></i>
+            <i class="fas fa-th-large" style="color: #16a34a;"></i>
             Report Templates
         </h3>
         <p>Pre-configured report formats</p>
@@ -542,7 +576,7 @@
 <!-- Recent Reports Section -->
 <div class="report-section">
     <h3>
-        <i class="fas fa-history" style="color: #8b5cf6;"></i>
+        <i class="fas fa-history" style="color: #16a34a;"></i>
         Recently Generated Reports
     </h3>
     <p>Your latest reports ready for download</p>
@@ -566,8 +600,8 @@
                     <td style="padding: 12px 16px; color: #6b7280;">{{ report.generated_at|date:"M d, Y" }}</td>
                     <td style="padding: 12px 16px;">
                         <span style="background: 
-                            {% if report.export_format == 'pdf' %}#dbeafe; color: #1e40af;
-                            {% elif report.export_format == 'excel' %}#dcfce7; color: #166534;
+                            {% if report.export_format == 'pdf' %}#eff6ff; color: #1d4ed8;
+                            {% elif report.export_format == 'excel' %}#f0fdf4; color: #16a34a;
                             {% else %}#fef3c7; color: #92400e;{% endif %}
                             padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 500;">
                             {{ report.export_format|upper }}
@@ -580,7 +614,7 @@
                                 <i class="fas fa-download"></i>
                             </button>
                             <button onclick="viewReport('{{ report.name|slugify }}.{{ report.export_format }}')" 
-                                    style="background: #f0fdf4; color: #15803d; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="View">
+                                    style="background: #f0fdf4; color: #16a34a; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="View">
                                 <i class="fas fa-eye"></i>
                             </button>
                         </div>
@@ -602,19 +636,69 @@
 <div id="loadingModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
     <div style="background: white; padding: 40px; border-radius: 12px; text-align: center; min-width: 300px;">
         <div style="margin-bottom: 20px;">
-            <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #3b82f6;"></i>
+            <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #16a34a;"></i>
         </div>
         <h3 style="margin: 0 0 8px 0; color: #1e293b;">Generating Report</h3>
         <p style="margin: 0; color: #64748b; font-size: 0.875rem;">Please wait while we prepare your report...</p>
         <div style="width: 100%; height: 4px; background: #f1f5f9; border-radius: 2px; margin-top: 20px; overflow: hidden;">
-            <div id="progressBar" style="width: 0%; height: 100%; background: #3b82f6; transition: width 0.3s ease; border-radius: 2px;"></div>
+            <div id="progressBar" style="width: 0%; height: 100%; background: #16a34a; transition: width 0.3s ease; border-radius: 2px;"></div>
         </div>
     </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
+<!-- Toastr JS for notifications -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
 <script>
+    // Green notification on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        toastr.options = {
+            closeButton: true,
+            progressBar: true,
+            positionClass: 'toast-top-right',
+            timeOut: 3000,
+            extendedTimeOut: 1000,
+            showEasing: 'swing',
+            hideEasing: 'linear',
+            showMethod: 'fadeIn',
+            hideMethod: 'fadeOut'
+        };
+        toastr.success('Reports page loaded', 'Success');
+
+        // Add subtle animations to cards
+        const cards = document.querySelectorAll('.metric-card, .report-section, .template-card');
+        cards.forEach((card, index) => {
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(20px)';
+            card.style.transition = 'all 0.6s ease';
+            setTimeout(() => {
+                card.style.opacity = '1';
+                card.style.transform = 'translateY(0)';
+            }, index * 100);
+        });
+
+        // Auto-dismiss Django messages after 5s
+        const alerts = document.querySelectorAll('.alert');
+        alerts.forEach(alert => {
+            setTimeout(() => {
+                alert.style.opacity = '0';
+                alert.style.transition = 'opacity 0.5s';
+                setTimeout(() => {
+                    alert.remove();
+                }, 500);
+            }, 5000);
+        });
+
+        // Set default dates on page load
+        const today = new Date();
+        const yearStart = new Date(today.getFullYear() - 1, 0, 1); // Jan 1, 2024
+        const now = today.toISOString().split('T')[0];
+        
+        document.getElementById('fromDate').value = yearStart.toISOString().split('T')[0];
+        document.getElementById('toDate').value = now;
+    });
+
     // Report generation functionality
     function generateReport(event) {
         event.preventDefault();
@@ -626,12 +710,12 @@
         const exportFormat = formData.get('export_format');
         
         if (!reportType || !fromDate || !toDate || !exportFormat) {
-            alert('Please fill in all required fields');
+            toastr.error('Please fill in all required fields', 'Error');
             return;
         }
         
         if (new Date(fromDate) > new Date(toDate)) {
-            alert('From date must be before to date');
+            toastr.error('From date must be before to date', 'Error');
             return;
         }
         
@@ -641,8 +725,7 @@
         // Add ajax flag to form data
         formData.append('ajax', '1');
         
-        // FIXED: Post to /reports/ instead of /reports/generate/
-        fetch('/reports/', {  // <-- This was /reports/generate/
+        fetch('/reports/', {
             method: 'POST',
             body: formData,
             headers: {
@@ -656,7 +739,6 @@
             if (response.headers.get('content-type')?.includes('application/json')) {
                 return response.json();
             } else {
-                // Handle direct download if no JSON
                 return response.blob().then(blob => {
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
@@ -674,69 +756,64 @@
             hideLoadingModal();
             
             if (data.success) {
-                showToast(data.message, 'success');
+                toastr.success(data.message, 'Success');
                 
                 if (data.download_url) {
-                    // Trigger automatic download
                     setTimeout(() => {
                         window.location.href = data.download_url;
                     }, 1000);
                 }
                 
-                // Reset form and refresh page to show updated reports
                 event.target.reset();
                 setTimeout(() => {
                     location.reload();
                 }, 2000);
             } else {
-                showToast(data.error || 'Error generating report', 'error');
+                toastr.error(data.error || 'Error generating report', 'Error');
             }
         })
         .catch(error => {
             hideLoadingModal();
             console.error('Error:', error);
-            showToast('Error generating report. Please try again.', 'error');
+            toastr.error('Error generating report. Please try again.', 'Error');
         });
     }
 
     function useTemplate(templateType) {
-        // Auto-fill the form with template data
         const reportTypeSelect = document.getElementById('reportType');
         const exportFormatSelect = document.getElementById('exportFormat');
         const fromDateInput = document.getElementById('fromDate');
         const toDateInput = document.getElementById('toDate');
         
-        // Set report type
         reportTypeSelect.value = templateType;
         
-        // Set default dates based on template (wider range for testing)
         const today = new Date();
-        const yearStart = new Date(today.getFullYear() - 1, 0, 1);  // Jan 1 last year for broader coverage
+        const yearStart = new Date(today.getFullYear() - 1, 0, 1);
         
         switch(templateType) {
             case 'monthly_harvest_summary':
                 fromDateInput.value = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().split('T')[0];
                 toDateInput.value = today.toISOString().split('T')[0];
-                exportFormatSelect.value = 'csv';  // CSV for easy testing
+                exportFormatSelect.value = 'csv';
                 break;
             case 'yield_performance_report':
-                fromDateInput.value = yearStart.toISOString().split('T')[0];  // Wider: last year start
+                fromDateInput.value = yearStart.toISOString().split('T')[0];
                 toDateInput.value = today.toISOString().split('T')[0];
                 exportFormatSelect.value = 'excel';
                 break;
             case 'inventory_status_report':
-                fromDateInput.value = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];  // This month
+                fromDateInput.value = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
                 toDateInput.value = today.toISOString().split('T')[0];
                 exportFormatSelect.value = 'csv';
                 break;
             default:
-                fromDateInput.value = yearStart.toISOString().split('T')[0];  // Default to broad range
+                fromDateInput.value = yearStart.toISOString().split('T')[0];
                 toDateInput.value = today.toISOString().split('T')[0];
                 exportFormatSelect.value = 'csv';
         }
         
-        // Scroll to form
         document.getElementById('generateReportForm').scrollIntoView({ behavior: 'smooth' });
+        toastr.info(`Selected ${templateType.replace('_', ' ').toLowerCase()} template`, 'Info');
     }
 
     function showLoadingModal() {
@@ -750,26 +827,13 @@
 
     function downloadReport(reportId) {
         window.location.href = `/reports/download/${reportId}/`;
-        showToast('Downloading report...', 'info');
+        toastr.info('Downloading report...', 'Info');
     }
     
     function viewReport(reportId) {
-        // Open in new tab for viewing
         window.open(`/reports/download/${reportId}/`, '_blank');
-        showToast('Opening report...', 'info');
+        toastr.info('Opening report...', 'Info');
     }
-
-    // Set default dates on page load (wider range for testing your data)
-    document.addEventListener('DOMContentLoaded', function() {
-        const today = new Date();
-        const yearStart = new Date(today.getFullYear() - 1, 0, 1);  // Jan 1, 2024 for broad coverage
-        const now = today.toISOString().split('T')[0];
-        
-        document.getElementById('fromDate').value = yearStart.toISOString().split('T')[0];  // e.g., 2024-01-01
-        document.getElementById('toDate').value = now;  // e.g., 2025-09-12
-        
-        showToast('Reports page loaded with broad date range (2024-01-01 to today) for testing', 'success');
-    });
 
     // Validate date range
     document.getElementById('toDate').addEventListener('change', function() {
@@ -777,7 +841,7 @@
         const toDate = this.value;
         
         if (fromDate && toDate && new Date(fromDate) > new Date(toDate)) {
-            alert('To date must be after from date');
+            toastr.error('To date must be after from date', 'Error');
             this.value = '';
         }
     });
@@ -787,7 +851,7 @@
         const toDate = document.getElementById('toDate').value;
         
         if (fromDate && toDate && new Date(fromDate) > new Date(toDate)) {
-            alert('From date must be before to date');
+            toastr.error('From date must be before to date', 'Error');
             document.getElementById('toDate').value = '';
         }
     });
