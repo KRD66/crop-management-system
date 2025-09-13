@@ -25,6 +25,7 @@ from .models import Farm, HarvestRecord,ReportTemplate, GeneratedReport, ReportA
 import os
 from django.views.decorators.http import require_POST
 
+
 # ReportLab imports for PDF generation
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
@@ -54,15 +55,32 @@ from .auth_views import admin_added_required, role_required
 # ========================
 # DASHBOARD AND MAIN VIEWS
 # ========================
+from django.shortcuts import render
+from django.contrib.auth.decorators import login_required
+from django.db.models import Sum, Avg, Count, Q
+from django.utils import timezone
+from datetime import datetime, timedelta
+from decimal import Decimal
+import json
+from .models import HarvestRecord, Farm, Field, InventoryItem, InventoryTransaction, Crop
+
 
 @login_required
-@admin_added_required
+@admin_added_required 
 def dashboard(request):
     """
-    Main dashboard view that calculates all metrics shown in the design
+    Fixed dashboard view using correct inventory models
     """
     try:
-        # Calculate Total Harvested
+        current_date = timezone.now().date()
+        current_year = current_date.year
+        
+        # Debug: Print counts to console
+        print(f"Debug - HarvestRecord count: {HarvestRecord.objects.count()}")
+        print(f"Debug - Farm count: {Farm.objects.count()}")
+        print(f"Debug - InventoryItem count: {InventoryItem.objects.count()}")
+        
+        # Calculate Total Harvested (all time, since you have recent data)
         total_harvested = HarvestRecord.objects.aggregate(
             total=Sum('quantity_tons')
         )['total'] or 0
@@ -70,12 +88,12 @@ def dashboard(request):
         # Calculate Active Farms
         active_farms = Farm.objects.filter(is_active=True).count()
         
-        # Calculate Total Inventory
-        total_inventory = Inventory.objects.aggregate(
-            total=Sum('quantity_tons')
+        # Calculate Total Inventory using InventoryItem (your actual inventory model)
+        total_inventory = InventoryItem.objects.aggregate(
+            total=Sum('quantity')  # Note: using 'quantity' not 'quantity_tons' for InventoryItem
         )['total'] or 0
         
-        # Calculate Average Yield Efficiency
+        # Enhanced Yield Efficiency Calculation
         fields_with_harvests = Field.objects.filter(
             harvestrecord__isnull=False
         ).distinct()
@@ -87,39 +105,50 @@ def dashboard(request):
             
             total_expected = 0
             for field in fields_with_harvests:
-                if field.crop.expected_yield_per_hectare:
+                if field.crop and field.crop.expected_yield_per_hectare:
                     expected = field.area_hectares * field.crop.expected_yield_per_hectare
                 else:
                     expected = field.area_hectares * Decimal('5')  # Default 5 tons/hectare
                 total_expected += expected
             
             if total_expected > 0:
-                avg_yield_efficiency = min(int((total_actual / total_expected) * 100), 100)
+                avg_yield_efficiency = min(int((total_actual / total_expected) * 100), 150)
             else:
-                avg_yield_efficiency = 85
+                avg_yield_efficiency = 0
         else:
-            avg_yield_efficiency = 85
+            avg_yield_efficiency = 0
         
-        # Get Harvest Trends data (monthly data for line chart)
+        # Fixed Harvest Trends (last 12 months with proper month calculation)
         harvest_trends = []
-        current_year = datetime.now().year
         
-        for month in range(1, 13):
+        # Start from 12 months ago and go month by month
+        for i in range(12):
+            # Calculate the month and year
+            target_date = current_date - timedelta(days=30 * (11-i))
+            month_name = target_date.strftime('%b %Y')
+            
+            # Get harvests for this month
+            month_start = target_date.replace(day=1)
+            if target_date.month == 12:
+                month_end = target_date.replace(year=target_date.year + 1, month=1, day=1) - timedelta(days=1)
+            else:
+                month_end = target_date.replace(month=target_date.month + 1, day=1) - timedelta(days=1)
+            
             month_total = HarvestRecord.objects.filter(
-                harvest_date__year=current_year,
-                harvest_date__month=month
+                harvest_date__gte=month_start,
+                harvest_date__lte=month_end
             ).aggregate(total=Sum('quantity_tons'))['total'] or 0
             
             harvest_trends.append({
-                'month': datetime(current_year, month, 1).strftime('%b'),
+                'month': month_name,
                 'value': float(month_total)
             })
         
-        # Get Crop Distribution data (for donut chart)
+        # Enhanced Crop Distribution
         crop_distribution = []
         total_crop_harvests = HarvestRecord.objects.aggregate(
             total=Sum('quantity_tons')
-        )['total'] or 1
+        )['total'] or 0
         
         if total_crop_harvests > 0:
             crop_stats = HarvestRecord.objects.values('field__crop__name').annotate(
@@ -127,72 +156,82 @@ def dashboard(request):
             ).order_by('-total_quantity')
             
             for crop in crop_stats:
-                if crop['total_quantity']:
+                if crop['total_quantity'] and crop['field__crop__name']:
                     percentage = (crop['total_quantity'] / total_crop_harvests) * 100
                     crop_distribution.append({
-                        'crop': crop['field__crop__name'],
-                        'percentage': round(percentage, 1),
+                        'crop': crop['field__crop__name'].lower(),
+                        'percentage': round(float(percentage), 1),  # Convert Decimal to float
                         'quantity': float(crop['total_quantity'])
                     })
         
-        # If no crop data, provide sample data
+        # If no crop data, use available crops
         if not crop_distribution:
-            crop_distribution = [
-                {'crop': 'corn', 'percentage': 45.0, 'quantity': 0},
-                {'crop': 'wheat', 'percentage': 30.0, 'quantity': 0},
-                {'crop': 'soybeans', 'percentage': 25.0, 'quantity': 0}
-            ]
+            available_crops = Crop.objects.all()[:3]
+            if available_crops:
+                equal_percentage = 100.0 / len(available_crops)
+                crop_distribution = [
+                    {'crop': crop.name.lower(), 'percentage': round(equal_percentage, 1), 'quantity': 0}
+                    for crop in available_crops
+                ]
         
-        # Get Yield Performance data (for the bar chart)
+        # Enhanced Yield Performance using real farm data
         yield_performance = []
-        farms = Farm.objects.filter(is_active=True)[:4]
+        # Get farms that have harvest records
+        farms_with_harvests = []
+        for farm in Farm.objects.filter(is_active=True):
+            if HarvestRecord.objects.filter(field__farm=farm).exists():
+                farms_with_harvests.append(farm)
         
-        if farms.exists():
-            for farm in farms:
-                farm_fields = Field.objects.filter(farm=farm)
-                expected_yield = 0
-                
-                for field in farm_fields:
-                    if field.crop.expected_yield_per_hectare:
-                        expected_yield += float(field.area_hectares * field.crop.expected_yield_per_hectare)
-                    else:
-                        expected_yield += float(field.area_hectares * 5)
-                
-                actual_yield = HarvestRecord.objects.filter(
-                    field__farm=farm
-                ).aggregate(total=Sum('quantity_tons'))['total'] or 0
-                
+        for farm in farms_with_harvests[:6]:
+            # Calculate expected yield for this farm
+            farm_fields = Field.objects.filter(farm=farm)
+            expected_yield = 0
+            
+            for field in farm_fields:
+                if field.crop and field.crop.expected_yield_per_hectare:
+                    expected_yield += float(field.area_hectares * field.crop.expected_yield_per_hectare)
+                else:
+                    expected_yield += float(field.area_hectares * Decimal('5'))
+            
+            # Calculate actual yield for this farm
+            actual_yield = HarvestRecord.objects.filter(
+                field__farm=farm
+            ).aggregate(total=Sum('quantity_tons'))['total'] or 0
+            
+            if expected_yield > 0 or actual_yield > 0:
                 yield_performance.append({
-                    'farm': farm.name[:10] + ('...' if len(farm.name) > 10 else ''),
-                    'expected': expected_yield,
+                    'farm': farm.name[:15] + ('...' if len(farm.name) > 15 else ''),
+                    'expected': round(expected_yield, 1),
                     'actual': float(actual_yield)
                 })
-        else:
-            # Sample data if no farms exist
-            yield_performance = [
-                {'farm': 'Farm A', 'expected': 2400, 'actual': 2500},
-                {'farm': 'Farm B', 'expected': 1800, 'actual': 1600},
-                {'farm': 'Farm C', 'expected': 2000, 'actual': 2100},
-                {'farm': 'Farm D', 'expected': 1700, 'actual': 1750}
-            ]
         
-        # Get Recent Harvests
+        # Get Recent Harvests (last 30 days)
         recent_harvests = HarvestRecord.objects.select_related(
             'field__farm', 'field__crop', 'harvested_by'
-        ).order_by('-harvest_date')[:5]
+        ).filter(
+            harvest_date__gte=current_date - timedelta(days=30)
+        ).order_by('-harvest_date')[:6]
         
-        # Get Upcoming Harvests
-        upcoming_date = datetime.now().date() + timedelta(days=30)
+        # Get Upcoming Harvests (next 60 days)
+        upcoming_date = current_date + timedelta(days=60)
         upcoming_harvests = Field.objects.filter(
             expected_harvest_date__lte=upcoming_date,
-            expected_harvest_date__gte=datetime.now().date(),
+            expected_harvest_date__gte=current_date,
             is_active=True
-        ).select_related('farm', 'crop').order_by('expected_harvest_date')[:5]
+        ).select_related('farm', 'crop').order_by('expected_harvest_date')[:6]
+        
+        # Calculate additional metrics
+        monthly_avg = total_harvested / 12 if total_harvested > 0 else 0
+        high_performing_farms = len([f for f in yield_performance if f['actual'] > f['expected']])
         
         # Get user role safely
-        user_role = 'Demo User - Admin'
+        user_role = 'User'
         if hasattr(request.user, 'userprofile'):
             user_role = request.user.userprofile.get_role_display()
+        elif request.user.is_superuser:
+            user_role = 'System Administrator'
+        elif request.user.is_staff:
+            user_role = 'Staff Member'
         
         context = {
             # Main dashboard metrics
@@ -201,9 +240,15 @@ def dashboard(request):
             'total_inventory': float(total_inventory),
             'avg_yield_efficiency': avg_yield_efficiency,
             
+            # Additional metrics
+            'monthly_avg_harvest': round(monthly_avg, 1),
+            'high_performing_farms': high_performing_farms,
+            'total_farms': Farm.objects.count(),
+            
             # Chart data (JSON serialized for JavaScript)
             'harvest_trends': json.dumps(harvest_trends),
-            'crop_distribution': crop_distribution,
+            'crop_distribution': crop_distribution,  # Keep as Python list for template loop
+            'crop_distribution_json': json.dumps(crop_distribution),  # Add JSON version for JavaScript
             'yield_performance': json.dumps(yield_performance),
             
             # Recent data
@@ -212,30 +257,47 @@ def dashboard(request):
             
             # User info
             'user_role': user_role,
-            'user_profile': getattr(request.user, 'userprofile', None)
+            'user_profile': getattr(request.user, 'userprofile', None),
+            
+            # Data freshness indicators
+            'data_last_updated': timezone.now(),
+            'has_recent_data': recent_harvests.exists(),
+            'has_upcoming_harvests': upcoming_harvests.exists(),
+            
+            # Debug info (remove in production)
+            'debug_info': {
+                'inventory_items': InventoryItem.objects.count(),
+                'inventory_transactions': InventoryTransaction.objects.count(),
+                'current_date': current_date,
+                'harvest_count': HarvestRecord.objects.count(),
+            }
         }
         
         return render(request, 'monitoring/dashboard.html', context)
         
     except Exception as e:
         print(f"Dashboard error: {e}")
-        # Return basic context on error
+        import traceback
+        traceback.print_exc()
+        
+        # Return minimal context on error
         context = {
             'total_harvested': 0,
             'active_farms': 0,
             'total_inventory': 0,
-            'avg_yield_efficiency': 85,
+            'avg_yield_efficiency': 0,
             'harvest_trends': json.dumps([]),
             'crop_distribution': [],
+            'crop_distribution_json': json.dumps([]),  # Add this
             'yield_performance': json.dumps([]),
             'recent_harvests': [],
             'upcoming_harvests': [],
             'user_role': 'User',
-            'error_message': 'Unable to load dashboard data'
+            'error_message': f'Unable to load dashboard data: {str(e)}',
+            'has_recent_data': False,
+            'has_upcoming_harvests': False,
         }
         return render(request, 'monitoring/dashboard.html', context)
-
-
 # ========================
 # USER MANAGEMENT VIEWS
 # ========================
@@ -1248,7 +1310,7 @@ from collections import defaultdict
 from datetime import timedelta, datetime
 import json
 
-from .models import Farm, Field, HarvestRecord, Crop, UserProfile,InventoryItem 
+from .models import Farm, Field, HarvestRecord, Crop, UserProfile,InventoryItem  # Add InventoryItem if needed for inventory stats
 
 @login_required
 def analytics(request):

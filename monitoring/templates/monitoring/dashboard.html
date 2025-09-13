@@ -4,7 +4,13 @@
 
 {% block header_content %}
 <h1>Dashboard</h1>
-<p>Farm overview and key metrics</p>
+<p>Farm overview and key metrics 
+    {% if has_recent_data %}
+        <span class="text-green-600">• Live Data</span>
+    {% else %}
+        <span class="text-yellow-600">• Limited Data</span>
+    {% endif %}
+</p>
 {% endblock %}
 
 {% block extra_css %}
@@ -26,6 +32,7 @@
         align-items: center;
         gap: 15px;
         border-left: 4px solid #3b82f6;
+        position: relative;
     }
 
     .metric-card:nth-child(2) { border-left-color: #10b981; }
@@ -50,9 +57,42 @@
     .metric-card:nth-child(4) .metric-icon { background: #8b5cf6; }
 
     .metric-content { flex: 1; }
-    .metric-value { font-size: 2rem; font-weight: bold; color: #1f2937; margin: 5px 0; line-height: 1; }
-    .metric-label { color: #6b7280; font-size: 0.9rem; font-weight: 500; }
-    .metric-change { color: #10b981; font-size: 0.8rem; font-weight: 500; }
+    .metric-value { 
+        font-size: 2rem; 
+        font-weight: bold; 
+        color: #1f2937; 
+        margin: 5px 0; 
+        line-height: 1; 
+    }
+    .metric-label { 
+        color: #6b7280; 
+        font-size: 0.9rem; 
+        font-weight: 500; 
+    }
+    .metric-change { 
+        color: #10b981; 
+        font-size: 0.8rem; 
+        font-weight: 500; 
+    }
+
+    /* Data freshness indicator */
+    .data-indicator {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #10b981;
+    }
+
+    .data-indicator.no-data {
+        background: #ef4444;
+    }
+
+    .data-indicator.limited-data {
+        background: #f59e0b;
+    }
 
     /* Sections */
     .section {
@@ -61,6 +101,7 @@
         border-radius: 12px;
         box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         margin-bottom: 20px;
+        position: relative;
     }
 
     .section h3 {
@@ -159,6 +200,40 @@
         opacity: 0.5;
     }
 
+    /* Error State */
+    .error-banner {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        color: #b91c1c;
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    /* No data overlay */
+    .no-data-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.9);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
+        z-index: 10;
+    }
+
+    .no-data-message {
+        text-align: center;
+        color: #6b7280;
+        font-size: 0.9rem;
+    }
+
     /* Responsive Design */
     @media (max-width: 1024px) {
         .charts-grid,
@@ -223,49 +298,82 @@
 {% endblock %}
 
 {% block content %}
+{% if error_message %}
+<div class="error-banner">
+    <i class="fas fa-exclamation-triangle"></i>
+    <span>{{ error_message }}</span>
+</div>
+{% endif %}
+
 <!-- Dashboard Metrics -->
 <div class="metrics">
     <div class="metric-card">
+        <div class="data-indicator {% if total_harvested == 0 %}no-data{% endif %}"></div>
         <div class="metric-icon">
             <i class="fas fa-seedling"></i>
         </div>
         <div class="metric-content">
-            <div class="metric-label">Total Harvested</div>
-            <div class="metric-value">2,847 tons</div>
-            <div class="metric-change">+12% from last season</div>
+            <div class="metric-label">Total Harvested (12mo)</div>
+            <div class="metric-value">{{ total_harvested|floatformat:0 }} tons</div>
+            <div class="metric-change">
+                {% if total_harvested > 0 %}
+                    Avg {{ monthly_avg_harvest|floatformat:1 }} tons/month
+                {% else %}
+                    No harvest data available
+                {% endif %}
+            </div>
         </div>
     </div>
     
     <div class="metric-card">
+        <div class="data-indicator {% if active_farms == 0 %}no-data{% endif %}"></div>
         <div class="metric-icon">
             <i class="fas fa-tractor"></i>
         </div>
         <div class="metric-content">
             <div class="metric-label">Active Farms</div>
-            <div class="metric-value">8</div>
-            <div class="metric-change">Across 3 locations</div>
+            <div class="metric-value">{{ active_farms }}</div>
+            <div class="metric-change">
+                {% if high_performing_farms %}
+                    {{ high_performing_farms }} exceeding targets
+                {% else %}
+                    {{ total_farms }} total farms
+                {% endif %}
+            </div>
         </div>
     </div>
     
     <div class="metric-card">
+        <div class="data-indicator {% if total_inventory == 0 %}limited-data{% endif %}"></div>
         <div class="metric-icon">
             <i class="fas fa-warehouse"></i>
         </div>
         <div class="metric-content">
-            <div class="metric-label">Inventory</div>
-            <div class="metric-value">1,234 tons</div>
+            <div class="metric-label">Current Inventory</div>
+            <div class="metric-value">{{ total_inventory|floatformat:0 }} tons</div>
             <div class="metric-change">In storage facilities</div>
         </div>
     </div>
     
     <div class="metric-card">
+        <div class="data-indicator {% if avg_yield_efficiency == 0 %}no-data{% endif %}"></div>
         <div class="metric-icon">
             <i class="fas fa-chart-line"></i>
         </div>
         <div class="metric-content">
-            <div class="metric-label">Avg Yield Efficiency</div>
-            <div class="metric-value">92%</div>
-            <div class="metric-change">vs expected yield</div>
+            <div class="metric-label">Yield Efficiency</div>
+            <div class="metric-value">{{ avg_yield_efficiency }}%</div>
+            <div class="metric-change">
+                {% if avg_yield_efficiency > 100 %}
+                    Above expected yield
+                {% elif avg_yield_efficiency > 80 %}
+                    Meeting targets
+                {% elif avg_yield_efficiency > 0 %}
+                    Below expectations
+                {% else %}
+                    No yield data
+                {% endif %}
+            </div>
         </div>
     </div>
 </div>
@@ -274,26 +382,53 @@
 <div class="charts-grid">
     <div class="section">
         <h3>Harvest Trends</h3>
-        <p>Monthly harvest data by crop type</p>
+        <p>Monthly harvest data over the last 12 months</p>
         <div class="chart-wrapper">
             <canvas id="harvestChart"></canvas>
+            {% if not has_recent_data %}
+            <div class="no-data-overlay">
+                <div class="no-data-message">
+                    <i class="fas fa-chart-line" style="font-size: 2rem; opacity: 0.3;"></i><br>
+                    No harvest data available<br>
+                    <small>Start recording harvests to see trends</small>
+                </div>
+            </div>
+            {% endif %}
         </div>
     </div>
     
     <div class="section">
         <h3>Crop Distribution</h3>
-        <p>Distribution of harvested crops by percentage</p>
+        <p>Harvest distribution by crop type</p>
         <div class="chart-wrapper">
             <canvas id="cropChart"></canvas>
+            {% if not crop_distribution %}
+            <div class="no-data-overlay">
+                <div class="no-data-message">
+                    <i class="fas fa-seedling" style="font-size: 2rem; opacity: 0.3;"></i><br>
+                    No crop data available<br>
+                    <small>Add crops and record harvests</small>
+                </div>
+            </div>
+            {% endif %}
         </div>
     </div>
 </div>
 
 <div class="section">
     <h3>Yield Performance</h3>
-    <p>Expected vs actual yield comparison by farm</p>
+    <p>Expected vs actual yield comparison by farm (last 12 months)</p>
     <div class="chart-wrapper">
         <canvas id="yieldChart"></canvas>
+        {% if not has_recent_data %}
+        <div class="no-data-overlay">
+            <div class="no-data-message">
+                <i class="fas fa-chart-bar" style="font-size: 2rem; opacity: 0.3;"></i><br>
+                No yield data available<br>
+                <small>Record harvests to track performance</small>
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -301,175 +436,399 @@
 <div class="activities-grid">
     <div class="section">
         <h3>Recent Harvests</h3>
+        <p>Last 30 days</p>
+        {% for harvest in recent_harvests %}
         <div class="activity-item">
-            <div class="activity-title">Anuoluwa Farms - North Field</div>
-            <div class="activity-detail">245 tons of Corn</div>
-            <div class="activity-date">2024-08-15</div>
+            <div class="activity-title">{{ harvest.field.farm.name }} - {{ harvest.field.name }}</div>
+            <div class="activity-detail">{{ harvest.quantity_tons|floatformat:0 }} tons of {{ harvest.field.crop.name }}</div>
+            <div class="activity-date">{{ harvest.harvest_date|date:"M d, Y" }}</div>
         </div>
-        <div class="activity-item">
-            <div class="activity-title">Ojemai Farms - East Plot</div>
-            <div class="activity-detail">180 tons of Wheat</div>
-            <div class="activity-date">2024-08-14</div>
+        {% empty %}
+        <div class="empty-state">
+            <i class="fas fa-seedling"></i>
+            <p>No recent harvests recorded.</p>
+            <small>Recent harvest activity will appear here</small>
         </div>
-        <div class="activity-item">
-            <div class="activity-title">Jovanna Farms - Section A</div>
-            <div class="activity-detail">320 tons of Cassava</div>
-            <div class="activity-date">2024-08-13</div>
-        </div>
-        <div class="activity-item">
-            <div class="activity-title">Obasanjo Farms - West Block</div>
-            <div class="activity-detail">156 tons of Rice</div>
-            <div class="activity-date">2024-08-12</div>
-        </div>
+        {% endfor %}
     </div>
 
     <div class="section">
         <h3>Upcoming Harvests</h3>
+        <p>Next 60 days</p>
+        {% for field in upcoming_harvests %}
         <div class="activity-item upcoming">
-            <div class="activity-title">Riverside Farm - Plot 3</div>
-            <div class="activity-detail">Corn</div>
-            <div class="activity-date">Expected: 2026-02-22</div>
+            <div class="activity-title">{{ field.farm.name }} - {{ field.name }}</div>
+            <div class="activity-detail">{{ field.crop.name }} - {{ field.area_hectares }} hectares</div>
+            <div class="activity-date">Expected: {{ field.expected_harvest_date|date:"M d, Y" }}</div>
         </div>
-        <div class="activity-item upcoming">
-            <div class="activity-title">Highland Farm - North Section</div>
-            <div class="activity-detail">cassava</div>
-            <div class="activity-date">Expected: 2026-01-25</div>
+        {% empty %}
+        <div class="empty-state">
+            <i class="fas fa-calendar-plus"></i>
+            <p>No upcoming harvests scheduled.</p>
+            <small>Set expected harvest dates in field management</small>
         </div>
-        <div class="activity-item upcoming">
-            <div class="activity-title">Valley View - East Field</div>
-            <div class="activity-detail">okro</div>
-            <div class="activity-date">Expected: 2023-02-20</div>
-        </div>
-        <div class="activity-item upcoming">
-            <div class="activity-title">Sunset Ranch - Block B</div>
-            <div class="activity-detail">Rice</div>
-            <div class="activity-date">Expected: 2026-03-02</div>
-        </div>
+        {% endfor %}
     </div>
 </div>
+
+{% if data_last_updated %}
+<div style="text-align: center; color: #9ca3af; font-size: 0.8rem; margin-top: 20px;">
+    Data last updated: {{ data_last_updated|date:"M d, Y H:i" }}
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
 <!-- Chart.js -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 <script>
-    // Sample data for charts
-    const harvestData = [
-        { month: 'Jan', value: 180 },
-        { month: 'Feb', value: 220 },
-        { month: 'Mar', value: 280 },
-        { month: 'Apr', value: 320 },
-        { month: 'May', value: 380 },
-        { month: 'Jun', value: 450 },
-        { month: 'Jul', value: 520 },
-        { month: 'Aug', value: 480 }
-    ];
+    // Load real data from context (JSON)
+    const harvestTrends = {{ harvest_trends|safe }};
+    const cropDistribution = {{ crop_distribution_json|safe }};  // Fixed: Use the JSON version
+    const yieldPerformance = {{ yield_performance|safe }};
 
-    const cropData = [
-        { crop: 'corn', percentage: 35 },
-        { crop: 'cassava', percentage: 25 },
-        { crop: 'okro', percentage: 20 },
-        { crop: 'rice', percentage: 15 },
-        { crop: 'other', percentage: 5 }
-    ];
+    // Check if we have data
+    const hasHarvestData = harvestTrends.length > 0 && harvestTrends.some(d => d.value > 0);
+    const hasCropData = cropDistribution.length > 0;
+    const hasYieldData = yieldPerformance.length > 0;
 
-    const yieldData = [
-        { farm: 'Green Valley', expected: 2500, actual: 2650 },
-        { farm: 'Sunny Acres', expected: 2200, actual: 2180 },
-        { farm: 'Golden Fields', expected: 2800, actual: 2750 },
-        { farm: 'Meadow Farm', expected: 2100, actual: 2250 },
-        { farm: 'Riverside', expected: 2600, actual: 2580 }
-    ];
+    // Debug logging to help troubleshoot
+    console.log('Dashboard Debug Info:');
+    console.log('Harvest Trends:', harvestTrends);
+    console.log('Crop Distribution:', cropDistribution);
+    console.log('Yield Performance:', yieldPerformance);
+    console.log('Has Data - Harvest:', hasHarvestData, 'Crop:', hasCropData, 'Yield:', hasYieldData);
 
     // Harvest Trends Chart
     const harvestCtx = document.getElementById('harvestChart').getContext('2d');
     new Chart(harvestCtx, {
         type: 'line',
         data: {
-            labels: harvestData.map(d => d.month),
+            labels: harvestTrends.map(d => d.month),
             datasets: [{
                 label: 'Harvest (tons)',
-                data: harvestData.map(d => d.value),
+                data: harvestTrends.map(d => d.value),
                 borderColor: '#3b82f6',
-                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                backgroundColor: hasHarvestData ? 'rgba(59, 130, 246, 0.1)' : 'rgba(156, 163, 175, 0.1)',
                 fill: true,
                 tension: 0.4,
                 pointBackgroundColor: '#3b82f6',
                 pointBorderColor: '#3b82f6',
-                pointRadius: 5
+                pointRadius: hasHarvestData ? 5 : 3
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             scales: {
-                y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
+                y: { 
+                    beginAtZero: true, 
+                    grid: { color: '#f1f5f9' },
+                    ticks: {
+                        callback: function(value) {
+                            return value + ' tons';
+                        }
+                    }
+                },
                 x: {
                     grid: { color: '#f1f5f9' },
                     ticks: { maxRotation: 45, minRotation: 30, autoSkip: false }
                 }
             },
-            plugins: { legend: { display: false } }
+            plugins: { 
+                legend: { display: hasHarvestData },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return 'Harvest: ' + context.parsed.y + ' tons';
+                        }
+                    }
+                }
+            },
+            elements: {
+                line: {
+                    borderColor: hasHarvestData ? '#3b82f6' : '#9ca3af'
+                }
+            }
         }
     });
 
     // Crop Distribution Chart
     const cropCtx = document.getElementById('cropChart').getContext('2d');
-    new Chart(cropCtx, {
-        type: 'doughnut',
-        data: {
-            labels: cropData.map(d => d.crop.charAt(0).toUpperCase() + d.crop.slice(1) + ' ' + d.percentage + '%'),
-            datasets: [{
-                data: cropData.map(d => d.percentage),
-                backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'],
-                borderWidth: 0,
-                cutout: '60%'
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { position: 'bottom', labels: { padding: 20, usePointStyle: true, font: { size: 11 } } }
+    if (hasCropData && cropDistribution.some(d => d.quantity > 0)) {
+        new Chart(cropCtx, {
+            type: 'doughnut',
+            data: {
+                labels: cropDistribution.map(d => d.crop.charAt(0).toUpperCase() + d.crop.slice(1)),
+                datasets: [{
+                    data: cropDistribution.map(d => d.percentage),
+                    backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'],
+                    borderWidth: 2,
+                    borderColor: '#ffffff',
+                    cutout: '60%'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { 
+                        position: 'bottom', 
+                        labels: { 
+                            padding: 20, 
+                            usePointStyle: true, 
+                            font: { size: 11 },
+                            generateLabels: function(chart) {
+                                const data = chart.data;
+                                if (data.labels.length && data.datasets.length) {
+                                    return data.labels.map((label, i) => {
+                                        const value = data.datasets[0].data[i];
+                                        return {
+                                            text: `${label}: ${value}%`,
+                                            fillStyle: data.datasets[0].backgroundColor[i],
+                                            hidden: false,
+                                            index: i
+                                        };
+                                    });
+                                }
+                                return [];
+                            }
+                        } 
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const crop = cropDistribution[context.dataIndex];
+                                return `${context.label}: ${crop.quantity} tons (${crop.percentage}%)`;
+                            }
+                        }
+                    }
+                }
             }
-        }
-    });
+        });
+    } else {
+        // Show empty chart for no data
+        new Chart(cropCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['No Data'],
+                datasets: [{
+                    data: [100],
+                    backgroundColor: ['#e5e7eb'],
+                    borderWidth: 0,
+                    cutout: '60%'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { enabled: false }
+                }
+            }
+        });
+    }
 
     // Yield Performance Chart
     const yieldCtx = document.getElementById('yieldChart').getContext('2d');
-    new Chart(yieldCtx, {
-        type: 'bar',
-        data: {
-            labels: yieldData.map(d => d.farm),
-            datasets: [
-                { label: 'Expected Yield', data: yieldData.map(d => d.expected), backgroundColor: '#e5e7eb', borderRadius: 4, maxBarThickness: 60 },
-                { label: 'Actual Yield', data: yieldData.map(d => d.actual), backgroundColor: '#10b981', borderRadius: 4, maxBarThickness: 60 }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: { beginAtZero: true, max: 2800, grid: { color: '#f1f5f9' }, ticks: { stepSize: 650 } },
-                x: { grid: { display: false } }
+    if (hasYieldData && yieldPerformance.some(d => d.actual > 0 || d.expected > 0)) {
+        const maxValue = Math.max(...yieldPerformance.map(d => Math.max(d.expected, d.actual)));
+        
+        new Chart(yieldCtx, {
+            type: 'bar',
+            data: {
+                labels: yieldPerformance.map(d => d.farm),
+                datasets: [
+                    { 
+                        label: 'Expected Yield', 
+                        data: yieldPerformance.map(d => d.expected), 
+                        backgroundColor: '#e5e7eb', 
+                        borderRadius: 4, 
+                        maxBarThickness: 60,
+                        borderWidth: 1,
+                        borderColor: '#d1d5db'
+                    },
+                    { 
+                        label: 'Actual Yield', 
+                        data: yieldPerformance.map(d => d.actual), 
+                        backgroundColor: yieldPerformance.map(d => d.actual >= d.expected ? '#10b981' : '#f59e0b'), 
+                        borderRadius: 4, 
+                        maxBarThickness: 60,
+                        borderWidth: 1,
+                        borderColor: yieldPerformance.map(d => d.actual >= d.expected ? '#059669' : '#d97706')
+                    }
+                ]
             },
-            plugins: { legend: { display: true, position: 'top' } },
-            interaction: { intersect: false, mode: 'index' }
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { 
+                        beginAtZero: true, 
+                        max: maxValue + (maxValue * 0.1), 
+                        grid: { color: '#f1f5f9' }, 
+                        ticks: { 
+                            stepSize: Math.ceil(maxValue / 10),
+                            callback: function(value) {
+                                return value + ' tons';
+                            }
+                        } 
+                    },
+                    x: { 
+                        grid: { display: false },
+                        ticks: {
+                            maxRotation: 45,
+                            minRotation: 0
+                        }
+                    }
+                },
+                plugins: { 
+                    legend: { 
+                        display: true, 
+                        position: 'top',
+                        labels: {
+                            usePointStyle: true,
+                            padding: 20
+                        }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const farm = yieldPerformance[context.dataIndex];
+                                const percentage = farm.expected > 0 ? ((farm.actual / farm.expected) * 100).toFixed(1) : 0;
+                                return `${context.dataset.label}: ${context.parsed.y} tons${context.datasetIndex === 1 ? ` (${percentage}% of expected)` : ''}`;
+                            }
+                        }
+                    }
+                },
+                interaction: { intersect: false, mode: 'index' }
+            }
+        });
+    } else {
+        // Show empty chart for no data
+        new Chart(yieldCtx, {
+            type: 'bar',
+            data: {
+                labels: ['No Data'],
+                datasets: [{
+                    data: [0],
+                    backgroundColor: '#e5e7eb',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, max: 10, grid: { color: '#f1f5f9' } },
+                    x: { grid: { display: false } }
+                },
+                plugins: { legend: { display: false }, tooltip: { enabled: false } }
+            }
+        });
+    }
+
+    // Auto-update dashboard data every 5 minutes (only if page is visible)
+    let updateInterval;
+    
+    function updateDashboardMetrics() {
+        if (document.visibilityState === 'visible') {
+            console.log('Updating dashboard metrics...');
+            // Check if we should refresh the page for new data
+            fetch(window.location.href, {
+                method: 'HEAD',
+                cache: 'no-cache'
+            }).then(response => {
+                if (response.ok) {
+                    // Optionally reload page to get fresh data
+                    // window.location.reload();
+                    console.log('Dashboard data check completed');
+                }
+            }).catch(error => {
+                console.log('Dashboard update check failed:', error);
+            });
+        }
+    }
+
+    function startUpdateInterval() {
+        updateInterval = setInterval(updateDashboardMetrics, 300000); // 5 minutes
+    }
+
+    function stopUpdateInterval() {
+        if (updateInterval) {
+            clearInterval(updateInterval);
+        }
+    }
+
+    // Handle page visibility changes
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') {
+            startUpdateInterval();
+        } else {
+            stopUpdateInterval();
         }
     });
 
-    // Auto-update dashboard data (simulate real-time updates)
-    function updateDashboardMetrics() {
-        console.log('Updating dashboard metrics...');
-        // This would typically make an AJAX call to get new data
-    }
-
-    // Start auto-refresh every 5 minutes
-    setInterval(updateDashboardMetrics, 300000);
-
     // Initialize dashboard
     document.addEventListener('DOMContentLoaded', function() {
-        showToast('Dashboard loaded successfully', 'success');
+        console.log('Dashboard loaded with real data');
+        console.log('Data counts:', {
+            harvestTrends: harvestTrends.length,
+            cropDistribution: cropDistribution.length,
+            yieldPerformance: yieldPerformance.length
+        });
+        
+        // Show appropriate messages based on data availability
+        if ({{ has_recent_data|yesno:"true,false" }}) {
+            console.log('Dashboard has recent data');
+            if (typeof showToast === 'function') {
+                showToast('Dashboard loaded with live farm data', 'success');
+            }
+        } else {
+            console.log('Dashboard has no recent data');
+            if (typeof showToast === 'function') {
+                showToast('Dashboard ready - start recording harvests to see data', 'info');
+            }
+        }
+        
+        // Start the update interval
+        startUpdateInterval();
+        
+        // Add click handlers for metric cards (optional)
+        document.querySelectorAll('.metric-card').forEach(card => {
+            card.addEventListener('click', function() {
+                const label = this.querySelector('.metric-label').textContent;
+                console.log('Clicked on metric:', label);
+                // Could navigate to detailed view
+            });
+        });
     });
+
+    // Clean up on page unload
+    window.addEventListener('beforeunload', function() {
+        stopUpdateInterval();
+    });
+
+    // Add some interactive features
+    function refreshDashboard() {
+        if (typeof showToast === 'function') {
+            showToast('Refreshing dashboard data...', 'info');
+        }
+        setTimeout(() => {
+            window.location.reload();
+        }, 1000);
+    }
+
+    // Check if Chart.js is loaded properly
+    if (typeof Chart === 'undefined') {
+        console.error('Chart.js is not loaded! Charts will not display.');
+    } else {
+        console.log('Chart.js loaded successfully');
+    }
+
+    // Optional: Add a refresh button (you can add this to your template)
+    // <button onclick="refreshDashboard()" class="btn btn-outline">Refresh Data</button>
 </script>
+
 {% endblock %}

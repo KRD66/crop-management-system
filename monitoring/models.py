@@ -1024,3 +1024,6 @@ class InventoryItemManager(models.Manager):
 
 # Add the custom manager to InventoryItem
 InventoryItem.add_to_class('objects', InventoryItemManager())
+
+
+
