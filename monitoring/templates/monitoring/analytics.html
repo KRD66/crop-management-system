@@ -9,8 +9,10 @@
 {% endblock %}
 
 {% block extra_css %}
+<!-- Toastr CSS for green notifications -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css">
 <style>
-    /* Analytics specific styles */
+    /* Analytics Metrics - MATCHING inventory.html EXACTLY */
     .analytics-metrics {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -23,52 +25,48 @@
         padding: 20px;
         border-radius: 12px;
         box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-    }
-
-    .analytics-metric-card.efficiency { border-left: 4px solid #10b981; }
-    .analytics-metric-card.performer { border-left: 4px solid #3b82f6; }
-    .analytics-metric-card.predicted { border-left: 4px solid #f59e0b; }
-    .analytics-metric-card.underperforming { border-left: 4px solid #ef4444; }
-
-    .metric-header {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        width: 100%;
-        margin-bottom: 10px;
+        gap: 15px;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .analytics-metric-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    }
+
+    .metric-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 10px;
+        background: #f0fdf4; /* Light green bg matching inventory */
+        color: #16a34a; /* Green accent */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+        flex-shrink: 0;
+    }
+
+    .metric-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
     }
 
     .metric-title {
         color: #6b7280;
         font-size: 0.9rem;
-        font-weight: 500;
+        margin-bottom: 4px;
     }
-
-    .metric-icon {
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.8rem;
-    }
-
-    .efficiency .metric-icon { background: #10b981; color: white; }
-    .performer .metric-icon { background: #3b82f6; color: white; }
-    .predicted .metric-icon { background: #f59e0b; color: white; }
-    .underperforming .metric-icon { background: #ef4444; color: white; }
 
     .metric-main-value {
-        font-size: 2.2rem;
+        font-size: 1.8rem;
         font-weight: bold;
         color: #1f2937;
-        margin-bottom: 5px;
-        line-height: 1;
+        margin-bottom: 2px;
     }
 
     .metric-subtitle {
@@ -77,17 +75,12 @@
     }
 
     .metric-change {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        margin-top: 8px;
+        color: #6b7280;
         font-size: 0.8rem;
+        margin-top: 2px;
     }
 
-    .metric-change.positive { color: #10b981; }
-    .metric-change.neutral { color: #6b7280; }
-
-    /* Chart sections */
+    /* Chart sections - Aligned spacing to inventory */
     .chart-section {
         background: white;
         padding: 20px;
@@ -100,29 +93,38 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 15px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+        gap: 15px;
     }
 
     .chart-title {
-        font-size: 1.2rem;
+        font-size: 1.25rem;
         font-weight: 600;
-        color: #1f2937;
+        color: #111827;
         margin: 0;
     }
 
     .chart-subtitle {
         color: #6b7280;
-        font-size: 0.9rem;
+        font-size: 0.875rem;
         margin: 5px 0 0 0;
     }
 
     .year-selector {
-        background: #f8fafb;
-        border: 1px solid #e5e7eb;
+        background: #f9fafb;
+        border: 2px solid #e5e7eb;
         border-radius: 6px;
-        padding: 6px 12px;
-        font-size: 0.9rem;
+        padding: 8px 12px;
+        font-size: 0.875rem;
         color: #374151;
+        transition: all 0.2s;
+    }
+
+    .year-selector:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
     }
 
     .chart-wrapper {
@@ -181,7 +183,7 @@
     }
 
     .ranking-number.top {
-        background: #10b981;
+        background: #16a34a; /* Green to match theme */
         color: white;
     }
 
@@ -191,7 +193,7 @@
 
     .ranking-name {
         font-weight: 600;
-        color: #1f2937;
+        color: #111827;
         font-size: 0.95rem;
     }
 
@@ -207,7 +209,7 @@
 
     .ranking-percentage {
         font-weight: bold;
-        color: #1f2937;
+        color: #111827;
         font-size: 0.9rem;
     }
 
@@ -241,13 +243,13 @@
 
     .prediction-crop {
         font-weight: 600;
-        color: #1f2937;
+        color: #111827;
         font-size: 0.95rem;
     }
 
     .prediction-amount {
         font-weight: bold;
-        color: #1f2937;
+        color: #111827;
         font-size: 0.95rem;
     }
 
@@ -276,7 +278,7 @@
         color: #d97706;
     }
 
-    /* Responsive design */
+    /* Responsive Design - MATCHED to inventory.html */
     @media (max-width: 1024px) {
         .bottom-sections {
             grid-template-columns: 1fr;
@@ -299,10 +301,17 @@
         
         .analytics-metric-card {
             padding: 15px;
+            gap: 12px;
+        }
+        
+        .metric-icon {
+            width: 45px;
+            height: 45px;
+            font-size: 1.3rem;
         }
         
         .metric-main-value {
-            font-size: 1.8rem;
+            font-size: 1.5rem;
         }
         
         .chart-section {
@@ -316,6 +325,12 @@
         .weather-chart-wrapper {
             height: 150px;
         }
+        
+        .chart-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 10px;
+        }
     }
 
     @media (max-width: 480px) {
@@ -324,13 +339,11 @@
         }
         
         .metric-main-value {
-            font-size: 1.5rem;
+            font-size: 1.3rem;
         }
         
-        .chart-header {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 10px;
+        .chart-section {
+            padding: 12px;
         }
         
         .ranking-left {
@@ -347,45 +360,66 @@
 {% endblock %}
 
 {% block content %}
-<!-- Key Metrics Cards (Updated for Real Data) -->
+<!-- Messages Display - Aligned to inventory -->
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}" style="margin-bottom: 20px; padding: 12px; border-radius: 8px; 
+             {% if message.tags == 'success' %}background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534;{% endif %}
+             {% if message.tags == 'error' %}background: #fef2f2; border: 1px solid #fecaca; color: #dc2626;{% endif %}
+             {% if message.tags == 'warning' %}background: #fffbeb; border: 1px solid #fed7aa; color: #d97706;{% endif %}
+             {% if message.tags == 'info' %}background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8;{% endif %}">
+            <i class="fas fa-info-circle" style="margin-right: 8px;"></i>
+            {{ message }}
+        </div>
+    {% endfor %}
+{% endif %}
+
+<!-- Key Metrics Cards (Updated to Match inventory.html) -->
 <div class="analytics-metrics">
-    <div class="analytics-metric-card efficiency">
-        <div class="metric-header">
-            <span class="metric-title">Avg Efficiency</span>
-            <div class="metric-icon">📊</div>
+    <div class="analytics-metric-card">
+        <div class="metric-icon">
+            <i class="fas fa-chart-line"></i>
         </div>
-        <div class="metric-main-value">{{ avg_efficiency }}%</div>
-        <div class="metric-change positive">
-            <i class="fas fa-arrow-up"></i>
-            {% if has_data %}+{{ avg_efficiency|floatformat:1 }}% overall{% else %}No data{% endif %}
+        <div class="metric-content">
+            <div class="metric-title">Avg Efficiency</div>
+            <div class="metric-main-value">{{ avg_efficiency }}%</div>
+            <div class="metric-change">
+                {% if has_data %}+{{ avg_efficiency|floatformat:1 }}% overall{% else %}No data{% endif %}
+            </div>
         </div>
     </div>
     
-    <div class="analytics-metric-card performer">
-        <div class="metric-header">
-            <span class="metric-title">Top Performer</span>
-            <div class="metric-icon">🏆</div>
+    <div class="analytics-metric-card">
+        <div class="metric-icon">
+            <i class="fas fa-trophy"></i>
         </div>
-        <div class="metric-main-value">{{ top_performer.name }}</div>
-        <div class="metric-subtitle">{{ top_performer.efficiency }}% efficiency</div>
+        <div class="metric-content">
+            <div class="metric-title">Top Performer</div>
+            <div class="metric-main-value">{{ top_performer.name }}</div>
+            <div class="metric-subtitle">{{ top_performer.efficiency }}% efficiency</div>
+        </div>
     </div>
     
-    <div class="analytics-metric-card predicted">
-        <div class="metric-header">
-            <span class="metric-title">Predicted Harvest</span>
-            <div class="metric-icon">📅</div>
+    <div class="analytics-metric-card">
+        <div class="metric-icon">
+            <i class="fas fa-calendar-alt"></i>
         </div>
-        <div class="metric-main-value">{{ predicted_harvest }} tons</div>
-        <div class="metric-subtitle">Next 2 weeks</div>
+        <div class="metric-content">
+            <div class="metric-title">Predicted Harvest</div>
+            <div class="metric-main-value">{{ predicted_harvest }} tons</div>
+            <div class="metric-subtitle">Next 2 weeks</div>
+        </div>
     </div>
     
-    <div class="analytics-metric-card underperforming">
-        <div class="metric-header">
-            <span class="metric-title">Underperforming</span>
-            <div class="metric-icon">⚠️</div>
+    <div class="analytics-metric-card">
+        <div class="metric-icon">
+            <i class="fas fa-exclamation-triangle"></i>
         </div>
-        <div class="metric-main-value">{{ underperforming_count }}</div>
-        <div class="metric-subtitle">Farms need attention</div>
+        <div class="metric-content">
+            <div class="metric-title">Underperforming</div>
+            <div class="metric-main-value">{{ underperforming_count }}</div>
+            <div class="metric-subtitle">Farms need attention</div>
+        </div>
     </div>
 </div>
 
@@ -452,10 +486,53 @@
     {% endfor %}
 </div>
 {% endblock %}
+
 {% block extra_js %}
+<!-- Toastr JS for notifications -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
 <!-- Chart.js -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 <script>
+    // Green notification on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        toastr.options = {
+            closeButton: true,
+            progressBar: true,
+            positionClass: 'toast-top-right',
+            timeOut: 3000,
+            extendedTimeOut: 1000,
+            showEasing: 'swing',
+            hideEasing: 'linear',
+            showMethod: 'fadeIn',
+            hideMethod: 'fadeOut'
+        };
+        toastr.success('Analytics loaded successfully!', 'Success');
+
+        // Add subtle animations to cards (matching harvest_record)
+        const cards = document.querySelectorAll('.analytics-metric-card, .chart-section, .ranking-item, .prediction-item');
+        cards.forEach((card, index) => {
+            card.style.opacity = '0';
+            card.style.transform = 'translateY(20px)';
+            card.style.transition = 'all 0.6s ease';
+            setTimeout(() => {
+                card.style.opacity = '1';
+                card.style.transform = 'translateY(0)';
+            }, index * 100);
+        });
+
+        // Auto-dismiss Django messages after 5s
+        const alerts = document.querySelectorAll('.alert');
+        alerts.forEach(alert => {
+            setTimeout(() => {
+                alert.style.opacity = '0';
+                alert.style.transition = 'opacity 0.5s';
+                setTimeout(() => {
+                    alert.remove();
+                }, 500);
+            }, 5000);
+        });
+    });
+
     // Sample data for analytics charts
     const yieldData = [
         { farm: 'Green Valley', expected: 2500, actual: 2650 },
@@ -477,183 +554,184 @@
     };
 
     // Yield Performance Chart
-    const yieldPerformanceCtx = document.getElementById('yieldPerformanceChart').getContext('2d');
-    
-    new Chart(yieldPerformanceCtx, {
-        type: 'bar',
-        data: {
-            labels: yieldData.map(d => d.farm),
-            datasets: [
-                {
-                    label: 'Expected Yield',
-                    data: yieldData.map(d => d.expected),
-                    backgroundColor: '#e5e7eb',
-                    borderRadius: 4,
-                    maxBarThickness: 50
-                },
-                {
-                    label: 'Actual Yield',
-                    data: yieldData.map(d => d.actual),
-                    backgroundColor: '#10b981',
-                    borderRadius: 4,
-                    maxBarThickness: 50
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    grid: { color: '#f1f5f9' }
-                },
-                x: {
-                    grid: { display: false }
-                }
+    const yieldPerformanceCtx = document.getElementById('yieldPerformanceChart')?.getContext('2d');
+    if (yieldPerformanceCtx) {
+        new Chart(yieldPerformanceCtx, {
+            type: 'bar',
+            data: {
+                labels: yieldData.map(d => d.farm),
+                datasets: [
+                    {
+                        label: 'Expected Yield',
+                        data: yieldData.map(d => d.expected),
+                        backgroundColor: '#e5e7eb',
+                        borderRadius: 4,
+                        maxBarThickness: 50
+                    },
+                    {
+                        label: 'Actual Yield',
+                        data: yieldData.map(d => d.actual),
+                        backgroundColor: '#16a34a', /* Green to match theme */
+                        borderRadius: 4,
+                        maxBarThickness: 50
+                    }
+                ]
             },
-            plugins: {
-                legend: {
-                    position: 'top',
-                    align: 'end'
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: '#f1f5f9' }
+                    },
+                    x: {
+                        grid: { display: false }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        align: 'end'
+                    }
                 }
             }
-        }
-    });
+        });
+    }
 
     // Seasonal Trends Chart
-    const seasonalTrendsCtx = document.getElementById('seasonalTrendsChart').getContext('2d');
-    
-    new Chart(seasonalTrendsCtx, {
-        type: 'line',
-        data: {
-            labels: ['2020', '2021', '2022', '2023', '2024'],
-            datasets: [
-                {
-                    label: 'Corn',
-                    data: seasonalData.corn,
-                    borderColor: '#3b82f6',
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                    tension: 0.4,
-                    pointRadius: 5
-                },
-                {
-                    label: 'Wheat',
-                    data: seasonalData.wheat,
-                    borderColor: '#10b981',
-                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                    tension: 0.4,
-                    pointRadius: 5
-                },
-                {
-                    label: 'Soybeans',
-                    data: seasonalData.soybeans,
-                    borderColor: '#f59e0b',
-                    backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                    tension: 0.4,
-                    pointRadius: 5
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    grid: { color: '#f1f5f9' }
-                },
-                x: {
-                    grid: { color: '#f1f5f9' }
-                }
+    const seasonalTrendsCtx = document.getElementById('seasonalTrendsChart')?.getContext('2d');
+    if (seasonalTrendsCtx) {
+        new Chart(seasonalTrendsCtx, {
+            type: 'line',
+            data: {
+                labels: ['2020', '2021', '2022', '2023', '2024'],
+                datasets: [
+                    {
+                        label: 'Corn',
+                        data: seasonalData.corn,
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4,
+                        pointRadius: 5
+                    },
+                    {
+                        label: 'Wheat',
+                        data: seasonalData.wheat,
+                        borderColor: '#16a34a', /* Green to match theme */
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        tension: 0.4,
+                        pointRadius: 5
+                    },
+                    {
+                        label: 'Soybeans',
+                        data: seasonalData.soybeans,
+                        borderColor: '#f59e0b',
+                        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                        tension: 0.4,
+                        pointRadius: 5
+                    }
+                ]
             },
-            plugins: {
-                legend: {
-                    position: 'top',
-                    align: 'end'
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: '#f1f5f9' }
+                    },
+                    x: {
+                        grid: { color: '#f1f5f9' }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        align: 'end'
+                    }
                 }
             }
-        }
-    });
+        });
+    }
 
     // Weather Correlation Chart
-    const weatherCorrelationCtx = document.getElementById('weatherCorrelationChart').getContext('2d');
-    
-    new Chart(weatherCorrelationCtx, {
-        type: 'line',
-        data: {
-            labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
-            datasets: [
-                {
-                    label: 'Performance (%)',
-                    data: weatherData.performance,
-                    borderColor: '#8b5cf6',
-                    backgroundColor: 'rgba(139, 92, 246, 0.3)',
-                    fill: true,
-                    tension: 0.4,
-                    yAxisID: 'y'
-                },
-                {
-                    label: 'Rainfall (inches)',
-                    data: weatherData.rainfall,
-                    borderColor: '#10b981',
-                    backgroundColor: 'transparent',
-                    tension: 0.4,
-                    pointRadius: 4,
-                    yAxisID: 'y1'
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: {
-                intersect: false,
-                mode: 'index'
+    const weatherCorrelationCtx = document.getElementById('weatherCorrelationChart')?.getContext('2d');
+    if (weatherCorrelationCtx) {
+        new Chart(weatherCorrelationCtx, {
+            type: 'line',
+            data: {
+                labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug'],
+                datasets: [
+                    {
+                        label: 'Performance (%)',
+                        data: weatherData.performance,
+                        borderColor: '#8b5cf6',
+                        backgroundColor: 'rgba(139, 92, 246, 0.3)',
+                        fill: true,
+                        tension: 0.4,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'Rainfall (inches)',
+                        data: weatherData.rainfall,
+                        borderColor: '#16a34a', /* Green to match theme */
+                        backgroundColor: 'transparent',
+                        tension: 0.4,
+                        pointRadius: 4,
+                        yAxisID: 'y1'
+                    }
+                ]
             },
-            scales: {
-                y: {
-                    type: 'linear',
-                    display: true,
-                    position: 'left',
-                    min: 0,
-                    max: 100,
-                    grid: { color: '#f1f5f9' },
-                    title: {
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    intersect: false,
+                    mode: 'index'
+                },
+                scales: {
+                    y: {
+                        type: 'linear',
                         display: true,
-                        text: 'Performance (%)'
+                        position: 'left',
+                        min: 0,
+                        max: 100,
+                        grid: { color: '#f1f5f9' },
+                        title: {
+                            display: true,
+                            text: 'Performance (%)'
+                        }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        min: 0,
+                        max: 6,
+                        grid: { drawOnChartArea: false },
+                        title: {
+                            display: true,
+                            text: 'Rainfall (inches)'
+                        }
+                    },
+                    x: {
+                        grid: { color: '#f1f5f9' }
                     }
                 },
-                y1: {
-                    type: 'linear',
-                    display: true,
-                    position: 'right',
-                    min: 0,
-                    max: 6,
-                    grid: { drawOnChartArea: false },
-                    title: {
-                        display: true,
-                        text: 'Rainfall (inches)'
+                plugins: {
+                    legend: {
+                        position: 'top',
+                        align: 'end'
                     }
-                },
-                x: {
-                    grid: { color: '#f1f5f9' }
-                }
-            },
-            plugins: {
-                legend: {
-                    position: 'top',
-                    align: 'end'
                 }
             }
-        }
-    });
+        });
+    }
 
     // Year selector functionality
-    document.getElementById('yearSelector').addEventListener('change', function(e) {
-        // Update seasonal trends chart based on selected year
-        console.log('Year selected:', e.target.value);
-        showToast(`Updating data for ${e.target.value}`, 'info');
+    document.getElementById('yearSelector')?.addEventListener('change', function(e) {
+        toastr.info(`Updating data for ${e.target.value}`, 'Info');
     });
 
     // Auto-update analytics data
@@ -664,10 +742,5 @@
 
     // Start auto-refresh every 10 minutes
     setInterval(updateAnalyticsData, 600000);
-
-    // Initialize analytics page
-    document.addEventListener('DOMContentLoaded', function() {
-        showToast('Analytics loaded successfully', 'success');
-    });
 </script>
 {% endblock %}
