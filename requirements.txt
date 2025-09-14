@@ -2,6 +2,7 @@ asgiref==3.8.1
 cffi==1.17.1
 charset-normalizer==3.4.3
 cryptography==44.0.2
+dj-database-url==3.0.1
 Django==5.1.6
 django-cors-headers==4.7.0
 django-extensions==4.1
@@ -12,7 +13,9 @@ django-taggit-labels==0.7.0
 djangorestframework==3.15.2
 djangorestframework_simplejwt==5.5.0
 et_xmlfile==2.0.0
+gunicorn==23.0.0
 openpyxl==3.1.5
+packaging==25.0
 pillow==11.1.0
 psycopg2-binary==2.9.10
 pycparser==2.22
@@ -23,3 +26,4 @@ python-dotenv==1.1.1
 reportlab==4.4.3
 six==1.17.0
 sqlparse==0.5.3
+whitenoise==6.10.0
