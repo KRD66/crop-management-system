@@ -1,0 +1,1 @@
+web: gunicorn harvest_project.wsgi --log-file -
