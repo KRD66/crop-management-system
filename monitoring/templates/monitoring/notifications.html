@@ -230,20 +230,8 @@
         background: #3b82f6;
     }
 
-    .notification-item[data-type="weather"] .notification-icon {
-        background: #f59e0b;
-    }
-
     .notification-item[data-type="inventory"] .notification-icon {
         background: #ef4444;
-    }
-
-    .notification-item[data-type="completed"] .notification-icon {
-        background: #16a34a; /* Green accent */
-    }
-
-    .notification-item[data-type="expiry"] .notification-icon {
-        background: #8b5cf6;
     }
 
     /* Settings Panel */
@@ -414,7 +402,7 @@
         </div>
         <div class="metric-content">
             <div class="metric-label">All Notifications</div>
-            <div class="metric-value">5</div>
+            <div class="metric-value">{{ total_notifications }}</div>
         </div>
     </div>
     
@@ -424,7 +412,7 @@
         </div>
         <div class="metric-content">
             <div class="metric-label">Need Attention</div>
-            <div class="metric-value">3</div>
+            <div class="metric-value">{{ unread_notifications }}</div>
         </div>
     </div>
     
@@ -434,7 +422,7 @@
         </div>
         <div class="metric-content">
             <div class="metric-label">Urgent Items</div>
-            <div class="metric-value">2</div>
+            <div class="metric-value">{{ high_priority_notifications }}</div>
         </div>
     </div>
     
@@ -444,7 +432,7 @@
         </div>
         <div class="metric-content">
             <div class="metric-label">Notification Types</div>
-            <div class="metric-value">5</div>
+            <div class="metric-value">{{ notification_types }}</div>
         </div>
     </div>
 </div>
@@ -465,113 +453,51 @@
         </div>
 
         <div class="notifications-list">
-            <!-- Harvest Due Alert -->
-            <div class="notification-item" data-type="harvest">
-                <div class="notification-icon">
-                    <i class="fas fa-calendar-check"></i>
-                </div>
-                <div class="notification-content">
-                    <h3 class="notification-title">Harvest Due Alert</h3>
-                    <p class="notification-message">Corn harvest is due in 3 days at North Field</p>
-                    <div class="notification-meta">
-                        <span><i class="far fa-clock"></i> 2024-08-08 09:30</span>
-                        <span><i class="fas fa-map-marker-alt"></i> odo-eja Field</span>
+            {% for notification in notifications %}
+                <div class="notification-item" data-type="{{ notification.notification_type }}">
+                    <div class="notification-icon">
+                        {% if notification.notification_type == 'harvest' %}
+                            <i class="fas fa-calendar-check"></i>
+                        {% elif notification.notification_type == 'inventory' %}
+                            <i class="fas fa-box"></i>
+                        {% endif %}
+                    </div>
+                    <div class="notification-content">
+                        <h3 class="notification-title">
+                            {% if notification.notification_type == 'harvest' %}
+                                Harvest Due Alert
+                            {% elif notification.notification_type == 'inventory' %}
+                                Low Inventory Alert
+                            {% endif %}
+                        </h3>
+                        <p class="notification-message">
+                            {{ notification.message }}
+                        </p>
+                        <div class="notification-meta">
+                            <span><i class="far fa-clock"></i>  {{ notification.created_at|date:"SHORT_DATE_FORMAT" }} </span>
+                            <span><i class="fas fa-map-marker-alt"></i> 
+                                {% if notification.notification_type == 'harvest' %}
+                                    {{ notification.farm.name }}
+                                {% elif notification.notification_type == 'inventory' %}
+                                    {{ notification.storage_location }}
+                                {% endif %}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="notification-actions">
+                        <span class="priority-badge priority-{{ notification.priority }}">{{ notification.priority }}</span>
+                        <div>
+                            <button class="btn btn-primary btn-small" onclick="markAsRead(this)">Mark Read</button>
+                            <button class="btn btn-secondary btn-small" onclick="deleteNotification(this)">Delete</button>
+                        </div>
                     </div>
                 </div>
-                <div class="notification-actions">
-                    <span class="priority-badge priority-high">high</span>
-                    <div>
-                        <button class="btn btn-primary btn-small" onclick="markAsRead(this)">Mark Read</button>
-                        <button class="btn btn-secondary btn-small" onclick="deleteNotification(this)">Delete</button>
-                    </div>
+            {% empty %}
+                <div class="empty-state">
+                    <i class="fas fa-bell-slash"></i>
+                    <p>No notifications available.</p>
                 </div>
-            </div>
-
-            <!-- Weather Warning -->
-            <div class="notification-item" data-type="weather">
-                <div class="notification-icon">
-                    <i class="fas fa-cloud-rain"></i>
-                </div>
-                <div class="notification-content">
-                    <h3 class="notification-title">Weather Warning</h3>
-                    <p class="notification-message">Heavy rain expected tomorrow. Consider postponing harvest.</p>
-                    <div class="notification-meta">
-                        <span><i class="far fa-clock"></i> 2024-08-08 08:15</span>
-                        <span><i class="fas fa-map-marker-alt"></i> All Farms</span>
-                    </div>
-                </div>
-                <div class="notification-actions">
-                    <span class="priority-badge priority-medium">medium</span>
-                    <div>
-                        <button class="btn btn-primary btn-small" onclick="markAsRead(this)">Mark Read</button>
-                        <button class="btn btn-secondary btn-small" onclick="deleteNotification(this)">Delete</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Low Inventory Alert -->
-            <div class="notification-item" data-type="inventory">
-                <div class="notification-icon">
-                    <i class="fas fa-box"></i>
-                </div>
-                <div class="notification-content">
-                    <h3 class="notification-title">Low Inventory Alert</h3>
-                    <p class="notification-message">Soybeans inventory below 500 tons threshold</p>
-                    <div class="notification-meta">
-                        <span><i class="far fa-clock"></i> 2024-08-07 16:45</span>
-                        <span><i class="fas fa-map-marker-alt"></i> Warehouse A</span>
-                    </div>
-                </div>
-                <div class="notification-actions">
-                    <span class="priority-badge priority-medium">medium</span>
-                    <div>
-                        <button class="btn btn-secondary btn-small" onclick="deleteNotification(this)">Delete</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Harvest Completed -->
-            <div class="notification-item" data-type="completed">
-                <div class="notification-icon">
-                    <i class="fas fa-check-circle"></i>
-                </div>
-                <div class="notification-content">
-                    <h3 class="notification-title">Harvest Completed</h3>
-                    <p class="notification-message">Wheat harvest completed successfully at South Field</p>
-                    <div class="notification-meta">
-                        <span><i class="far fa-clock"></i> 2024-08-07 14:20</span>
-                        <span><i class="fas fa-map-marker-alt"></i> South Field</span>
-                    </div>
-                </div>
-                <div class="notification-actions">
-                    <span class="priority-badge priority-low">low</span>
-                    <div>
-                        <button class="btn btn-secondary btn-small" onclick="deleteNotification(this)">Delete</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Stock Expiry Warning -->
-            <div class="notification-item" data-type="expiry">
-                <div class="notification-icon">
-                    <i class="fas fa-clock"></i>
-                </div>
-                <div class="notification-content">
-                    <h3 class="notification-title">Stock Expiry Warning</h3>
-                    <p class="notification-message">Rice inventory expires in 30 days</p>
-                    <div class="notification-meta">
-                        <span><i class="far fa-clock"></i> 2024-08-07 10:30</span>
-                        <span><i class="fas fa-map-marker-alt"></i> Warehouse C</span>
-                    </div>
-                </div>
-                <div class="notification-actions">
-                    <span class="priority-badge priority-high">high</span>
-                    <div>
-                        <button class="btn btn-primary btn-small" onclick="markAsRead(this)">Mark Read</button>
-                        <button class="btn btn-secondary btn-small" onclick="deleteNotification(this)">Delete</button>
-                    </div>
-                </div>
-            </div>
+            {% endfor %}
         </div>
     </div>
 
@@ -585,25 +511,13 @@
         </div>
 
         <div class="settings-section">
-            <h3 class="settings-title">Harvest Due Dates</h3>
+            <h3 class="settings-title">Notification Types</h3>
             <div class="setting-item">
-                <span class="setting-label">Weather Alerts</span>
+                <span class="setting-label">Harvest Alerts</span>
                 <div class="toggle active" onclick="toggleSetting(this)"></div>
             </div>
             <div class="setting-item">
                 <span class="setting-label">Low Inventory</span>
-                <div class="toggle active" onclick="toggleSetting(this)"></div>
-            </div>
-            <div class="setting-item">
-                <span class="setting-label">Stock Expiry Warnings</span>
-                <div class="toggle active" onclick="toggleSetting(this)"></div>
-            </div>
-            <div class="setting-item">
-                <span class="setting-label">Task Completions</span>
-                <div class="toggle" onclick="toggleSetting(this)"></div>
-            </div>
-            <div class="setting-item">
-                <span class="setting-label">System Updates</span>
                 <div class="toggle active" onclick="toggleSetting(this)"></div>
             </div>
         </div>
@@ -699,44 +613,6 @@
         }
     }
 
-    function filterNotifications(type) {
-        const allNotifications = document.querySelectorAll('.notification-item');
-        allNotifications.forEach(item => {
-            if (type === 'all' || item.dataset.type === type) {
-                item.style.display = 'flex';
-            } else {
-                item.style.display = 'none';
-            }
-        });
-        toastr.info(`Filtered to ${type === 'all' ? 'all' : type} notifications`, 'Info');
-    }
-
-    function searchNotifications(query) {
-        const allNotifications = document.querySelectorAll('.notification-item');
-        const searchQuery = query.toLowerCase();
-        
-        allNotifications.forEach(item => {
-            const title = item.querySelector('.notification-title').textContent.toLowerCase();
-            const message = item.querySelector('.notification-message').textContent.toLowerCase();
-            
-            if (title.includes(searchQuery) || message.includes(searchQuery)) {
-                item.style.display = 'flex';
-            } else {
-                item.style.display = 'none';
-            }
-        });
-        toastr.info(`Search results for "${query}"`, 'Info');
-    }
-
-    function autoRefreshNotifications() {
-        console.log('Checking for new notifications...');
-        
-        if (Math.random() < 0.1) {
-            toastr.info('New notification received', 'Info');
-            updateNotificationCounts();
-        }
-    }
-
     document.addEventListener('DOMContentLoaded', function() {
         toastr.options = {
             closeButton: true,
@@ -762,12 +638,11 @@
                 toastr.info('{{ message|escapejs }}', 'Info');
             {% endif %}
         {% empty %}
-            // Default page load message
             toastr.success('Notifications loaded successfully', 'Success');
         {% endfor %}
 
         updateNotificationCounts();
-        
+
         // Add subtle animations to cards
         const cards = document.querySelectorAll('.metric-card, .section');
         cards.forEach((card, index) => {
@@ -807,7 +682,5 @@
             }
         });
     });
-
-    setInterval(autoRefreshNotifications, 30000);
 </script>
 {% endblock %}

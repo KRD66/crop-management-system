@@ -31,36 +31,6 @@
             position: relative;
         }
 
-        .demo-section {
-            background: #f8f9fa;
-            border-radius: 12px;
-            padding: 16px;
-            margin-bottom: 32px;
-            text-align: center;
-            border: 1px solid #e9ecef;
-        }
-
-        .demo-button {
-            background: #22c55e;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            text-decoration: none;
-            display: inline-block;
-            width: 100%;
-            max-width: 200px;
-        }
-
-        .demo-button:hover {
-            background: #16a34a;
-            transform: translateY(-1px);
-        }
-
         .logo-section {
             text-align: center;
             margin-bottom: 32px;
@@ -234,13 +204,6 @@
 </head>
 <body>
     <div class="auth-container">
-        <!-- Demo Admin Button -->
-        <div class="demo-section">
-            <button type="button" class="demo-button" onclick="fillAdminCredentials()">
-                Log in as Admin
-            </button>
-        </div>
-
         <!-- Logo and Welcome -->
         <div class="logo-section">
             <div class="logo">
@@ -301,11 +264,6 @@
     </div>
 
     <script>
-        function fillAdminCredentials() {
-            document.getElementById('loginUsername').value = 'demo@harvestpro.com';
-            document.getElementById('loginPassword').value = 'demo123';
-        }
-
         function showForgotPasswordAlert() {
             alert('Please contact your system administrator to reset your password.');
         }

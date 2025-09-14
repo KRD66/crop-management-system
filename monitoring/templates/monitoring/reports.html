@@ -241,6 +241,17 @@
         cursor: not-allowed;
     }
 
+    /* Status badges for reports */
+    .status-badge {
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+    .status-generated { background: #f0fdf4; color: #16a34a; }
+    .status-failed { background: #fef2f2; color: #dc2626; }
+    .status-pending { background: #fef3c7; color: #d97706; }
+
     /* Responsive Design - MATCHED to analytics.html */
     @media (max-width: 1024px) {
         .report-templates-grid {
@@ -388,6 +399,7 @@
         <p>Create custom reports based on your data</p>
         
         <form id="generateReportForm" onsubmit="generateReport(event)">
+            {% csrf_token %}
             <div class="form-group" style="margin-bottom: 20px;">
                 <label for="reportType">Report Type</label>
                 <select id="reportType" name="report_type" required>
@@ -589,6 +601,7 @@
                     <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem;">Type</th>
                     <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem;">Generated</th>
                     <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem;">Format</th>
+                    <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem;">Status</th>
                     <th style="padding: 12px 16px; text-align: left; font-weight: 600; color: #374151; font-size: 0.875rem;">Actions</th>
                 </tr>
             </thead>
@@ -608,21 +621,28 @@
                         </span>
                     </td>
                     <td style="padding: 12px 16px;">
+                        <span class="status-badge status-{{ report.status }}">{{ report.get_status_display|default:report.status|title }}</span>
+                    </td>
+                    <td style="padding: 12px 16px;">
                         <div style="display: flex; gap: 8px;">
-                            <button onclick="downloadReport('{{ report.name|slugify }}.{{ report.export_format }}')" 
-                                    style="background: #f0f9ff; color: #0369a1; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="Download">
-                                <i class="fas fa-download"></i>
-                            </button>
-                            <button onclick="viewReport('{{ report.name|slugify }}.{{ report.export_format }}')" 
-                                    style="background: #f0fdf4; color: #16a34a; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="View">
-                                <i class="fas fa-eye"></i>
-                            </button>
+                            {% if report.status == 'generated' and report.file %}
+                                <button onclick="downloadReport({{ report.id }})" 
+                                        style="background: #f0f9ff; color: #0369a1; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="Download">
+                                    <i class="fas fa-download"></i>
+                                </button>
+                                <button onclick="viewReport({{ report.id }})" 
+                                        style="background: #f0fdf4; color: #16a34a; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem;" title="View">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            {% else %}
+                                <span style="color: #6b7280; font-size: 0.75rem;">Not ready</span>
+                            {% endif %}
                         </div>
                     </td>
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="5" style="padding: 20px; text-align: center; color: #6b7280;">
+                    <td colspan="6" style="padding: 20px; text-align: center; color: #6b7280;">
                         No reports generated yet. Create your first report above!
                     </td>
                 </tr>
@@ -646,214 +666,226 @@
     </div>
 </div>
 {% endblock %}
-
 {% block extra_js %}
 <!-- Toastr JS for notifications -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
 <script>
-    // Green notification on page load
-    document.addEventListener('DOMContentLoaded', function() {
-        toastr.options = {
-            closeButton: true,
-            progressBar: true,
-            positionClass: 'toast-top-right',
-            timeOut: 3000,
-            extendedTimeOut: 1000,
-            showEasing: 'swing',
-            hideEasing: 'linear',
-            showMethod: 'fadeIn',
-            hideMethod: 'fadeOut'
-        };
-        toastr.success('Reports page loaded', 'Success');
+    
+document.addEventListener('DOMContentLoaded', function() {
+    // Toastr options
+    toastr.options = {
+        closeButton: true,
+        progressBar: true,
+        positionClass: 'toast-top-right',
+        timeOut: 4000,
+        extendedTimeOut: 1000,
+        showEasing: 'swing',
+        hideEasing: 'linear',
+        showMethod: 'fadeIn',
+        hideMethod: 'fadeOut'
+    };
+    
+    toastr.success('Reports page loaded', 'Success');
 
-        // Add subtle animations to cards
-        const cards = document.querySelectorAll('.metric-card, .report-section, .template-card');
-        cards.forEach((card, index) => {
-            card.style.opacity = '0';
-            card.style.transform = 'translateY(20px)';
-            card.style.transition = 'all 0.6s ease';
-            setTimeout(() => {
-                card.style.opacity = '1';
-                card.style.transform = 'translateY(0)';
-            }, index * 100);
-        });
+    // Set default dates
+    const today = new Date();
+    const yearStart = new Date(today.getFullYear() - 1, 0, 1);
+    document.getElementById('fromDate').value = yearStart.toISOString().split('T')[0];
+    document.getElementById('toDate').value = today.toISOString().split('T')[0];
+});
 
-        // Auto-dismiss Django messages after 5s
-        const alerts = document.querySelectorAll('.alert');
-        alerts.forEach(alert => {
-            setTimeout(() => {
-                alert.style.opacity = '0';
-                alert.style.transition = 'opacity 0.5s';
-                setTimeout(() => {
-                    alert.remove();
-                }, 500);
-            }, 5000);
-        });
-
-        // Set default dates on page load
-        const today = new Date();
-        const yearStart = new Date(today.getFullYear() - 1, 0, 1); // Jan 1, 2024
-        const now = today.toISOString().split('T')[0];
-        
-        document.getElementById('fromDate').value = yearStart.toISOString().split('T')[0];
-        document.getElementById('toDate').value = now;
-    });
-
-    // Report generation functionality
-    function generateReport(event) {
-        event.preventDefault();
-        
-        const formData = new FormData(event.target);
-        const reportType = formData.get('report_type');
-        const fromDate = formData.get('from_date');
-        const toDate = formData.get('to_date');
-        const exportFormat = formData.get('export_format');
-        
-        if (!reportType || !fromDate || !toDate || !exportFormat) {
-            toastr.error('Please fill in all required fields', 'Error');
-            return;
-        }
-        
-        if (new Date(fromDate) > new Date(toDate)) {
-            toastr.error('From date must be before to date', 'Error');
-            return;
-        }
-        
-        // Show loading modal
-        showLoadingModal();
-        
-        // Add ajax flag to form data
-        formData.append('ajax', '1');
-        
-        fetch('/reports/', {
-            method: 'POST',
-            body: formData,
-            headers: {
-                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
-            }
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            if (response.headers.get('content-type')?.includes('application/json')) {
-                return response.json();
-            } else {
-                return response.blob().then(blob => {
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.style.display = 'none';
-                    a.href = url;
-                    a.download = `report_${Date.now()}.${exportFormat}`;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    return { success: true, message: 'Report downloaded successfully!' };
-                });
-            }
-        })
-        .then(data => {
-            hideLoadingModal();
-            
-            if (data.success) {
-                toastr.success(data.message, 'Success');
-                
-                if (data.download_url) {
-                    setTimeout(() => {
-                        window.location.href = data.download_url;
-                    }, 1000);
-                }
-                
-                event.target.reset();
-                setTimeout(() => {
-                    location.reload();
-                }, 2000);
-            } else {
-                toastr.error(data.error || 'Error generating report', 'Error');
-            }
-        })
-        .catch(error => {
-            hideLoadingModal();
-            console.error('Error:', error);
-            toastr.error('Error generating report. Please try again.', 'Error');
-        });
-    }
-
-    function useTemplate(templateType) {
-        const reportTypeSelect = document.getElementById('reportType');
-        const exportFormatSelect = document.getElementById('exportFormat');
-        const fromDateInput = document.getElementById('fromDate');
-        const toDateInput = document.getElementById('toDate');
-        
-        reportTypeSelect.value = templateType;
-        
-        const today = new Date();
-        const yearStart = new Date(today.getFullYear() - 1, 0, 1);
-        
-        switch(templateType) {
-            case 'monthly_harvest_summary':
-                fromDateInput.value = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().split('T')[0];
-                toDateInput.value = today.toISOString().split('T')[0];
-                exportFormatSelect.value = 'csv';
-                break;
-            case 'yield_performance_report':
-                fromDateInput.value = yearStart.toISOString().split('T')[0];
-                toDateInput.value = today.toISOString().split('T')[0];
-                exportFormatSelect.value = 'excel';
-                break;
-            case 'inventory_status_report':
-                fromDateInput.value = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-                toDateInput.value = today.toISOString().split('T')[0];
-                exportFormatSelect.value = 'csv';
-                break;
-            default:
-                fromDateInput.value = yearStart.toISOString().split('T')[0];
-                toDateInput.value = today.toISOString().split('T')[0];
-                exportFormatSelect.value = 'csv';
-        }
-        
-        document.getElementById('generateReportForm').scrollIntoView({ behavior: 'smooth' });
-        toastr.info(`Selected ${templateType.replace('_', ' ').toLowerCase()} template`, 'Info');
-    }
-
-    function showLoadingModal() {
-        document.getElementById('loadingModal').style.display = 'flex';
-        document.getElementById('progressBar').style.width = '0%';
-    }
-
-    function hideLoadingModal() {
-        document.getElementById('loadingModal').style.display = 'none';
-    }
-
-    function downloadReport(reportId) {
-        window.location.href = `/reports/download/${reportId}/`;
-        toastr.info('Downloading report...', 'Info');
+// Simple report generation function
+function generateReport(event) {
+    event.preventDefault();
+    console.log('Generate report called');
+    
+    const form = event.target;
+    const formData = new FormData(form);
+    const reportType = formData.get('report_type');
+    const fromDate = formData.get('from_date');
+    const toDate = formData.get('to_date');
+    const exportFormat = formData.get('export_format');
+    
+    console.log('Form data:', { reportType, fromDate, toDate, exportFormat });
+    
+    // Basic validation
+    if (!reportType || !fromDate || !toDate || !exportFormat) {
+        toastr.error('Please fill in all required fields', 'Error');
+        return;
     }
     
-    function viewReport(reportId) {
-        window.open(`/reports/download/${reportId}/`, '_blank');
-        toastr.info('Opening report...', 'Info');
+    if (new Date(fromDate) > new Date(toDate)) {
+        toastr.error('From date must be before to date', 'Error');
+        return;
     }
-
-    // Validate date range
-    document.getElementById('toDate').addEventListener('change', function() {
-        const fromDate = document.getElementById('fromDate').value;
-        const toDate = this.value;
-        
-        if (fromDate && toDate && new Date(fromDate) > new Date(toDate)) {
-            toastr.error('To date must be after from date', 'Error');
-            this.value = '';
+    
+    // Show loading
+    showLoadingModal();
+    const submitButton = form.querySelector('button[type="submit"]');
+    const originalText = submitButton.innerHTML;
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+    
+    // Add AJAX flag
+    formData.append('ajax', '1');
+    
+    console.log('Sending AJAX request...');
+    
+    fetch('/reports/', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
         }
-    });
-
-    document.getElementById('fromDate').addEventListener('change', function() {
-        const fromDate = this.value;
-        const toDate = document.getElementById('toDate').value;
+    })
+    .then(response => {
+        console.log('Response received:', response);
+        console.log('Response status:', response.status);
+        console.log('Response headers:', response.headers.get('content-type'));
         
-        if (fromDate && toDate && new Date(fromDate) > new Date(toDate)) {
-            toastr.error('From date must be before to date', 'Error');
-            document.getElementById('toDate').value = '';
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
+        
+        return response.json();
+    })
+    .then(data => {
+        console.log('Response data:', data);
+        hideLoadingModal();
+        
+        // Re-enable form
+        submitButton.disabled = false;
+        submitButton.innerHTML = originalText;
+        
+        if (data.success) {
+            toastr.success(data.message || 'Report generated successfully!', 'Success');
+            
+            if (data.report_id) {
+                // Auto download after a short delay
+                setTimeout(() => {
+                    console.log('Starting auto-download for report ID:', data.report_id);
+                    downloadReport(data.report_id);
+                }, 1000);
+                
+                // Reload page after download starts to refresh the table
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            }
+        } else {
+            toastr.error(data.error || 'Unknown error occurred', 'Error');
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        hideLoadingModal();
+        
+        // Re-enable form
+        submitButton.disabled = false;
+        submitButton.innerHTML = originalText;
+        
+        toastr.error(`Error generating report: ${error.message}`, 'Error');
     });
+}
+
+// Template selection
+function useTemplate(templateType) {
+    console.log('Using template:', templateType);
+    
+    const reportTypeSelect = document.getElementById('reportType');
+    const exportFormatSelect = document.getElementById('exportFormat');
+    const fromDateInput = document.getElementById('fromDate');
+    const toDateInput = document.getElementById('toDate');
+    
+    reportTypeSelect.value = templateType;
+    
+    const today = new Date();
+    const yearStart = new Date(today.getFullYear() - 1, 0, 1);
+    
+    switch(templateType) {
+        case 'monthly_harvest_summary':
+            fromDateInput.value = new Date(today.getFullYear(), today.getMonth() - 1, 1).toISOString().split('T')[0];
+            toDateInput.value = today.toISOString().split('T')[0];
+            exportFormatSelect.value = 'csv';
+            break;
+        case 'yield_performance_report':
+            fromDateInput.value = yearStart.toISOString().split('T')[0];
+            toDateInput.value = today.toISOString().split('T')[0];
+            exportFormatSelect.value = 'excel';
+            break;
+        case 'inventory_status_report':
+            fromDateInput.value = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+            toDateInput.value = today.toISOString().split('T')[0];
+            exportFormatSelect.value = 'csv';
+            break;
+        default:
+            fromDateInput.value = yearStart.toISOString().split('T')[0];
+            toDateInput.value = today.toISOString().split('T')[0];
+            exportFormatSelect.value = 'csv';
+    }
+    
+    document.getElementById('generateReportForm').scrollIntoView({ behavior: 'smooth' });
+    toastr.info(`Selected ${templateType.replace(/_/g, ' ').toLowerCase()} template`, 'Info');
+}
+
+// Modal controls
+function showLoadingModal() {
+    const modal = document.getElementById('loadingModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        document.getElementById('progressBar').style.width = '20%';
+        
+        setTimeout(() => {
+            document.getElementById('progressBar').style.width = '60%';
+        }, 500);
+        
+        setTimeout(() => {
+            document.getElementById('progressBar').style.width = '90%';
+        }, 1000);
+    }
+}
+
+function hideLoadingModal() {
+    const modal = document.getElementById('loadingModal');
+    if (modal) {
+        document.getElementById('progressBar').style.width = '100%';
+        setTimeout(() => {
+            modal.style.display = 'none';
+        }, 300);
+    }
+}
+
+// Download functions
+function downloadReport(reportId) {
+    console.log('Downloading report ID:', reportId);
+    const url = `/reports/download/${reportId}/`;
+    window.location.href = url;
+    toastr.info('Starting download...', 'Info');
+}
+
+function viewReport(reportId) {
+    window.open(`/reports/download/${reportId}/`, '_blank');
+    toastr.info('Opening report...', 'Info');
+}
+
+// Date validation
+document.getElementById('toDate').addEventListener('change', function() {
+    const fromDate = document.getElementById('fromDate').value;
+    const toDate = this.value;
+    if (fromDate && toDate && new Date(fromDate) > new Date(toDate)) {
+        toastr.error('To date must be after from date', 'Error');
+        this.value = '';
+    }
+});
+
+document.getElementById('fromDate').addEventListener('change', function() {
+    const fromDate = this.value;
+    const toDate = document.getElementById('toDate').value;
+    if (fromDate && toDate && new Date(fromDate) > new Date(toDate)) {
+        toastr.error('From date must be before to date', 'Error');
+        document.getElementById('toDate').value = '';
+    }
+});
+
 </script>
 {% endblock %}

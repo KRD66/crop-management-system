@@ -1,0 +1,386 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HarvestPro - Smarter Harvest, Better Future</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            overflow-x: hidden;
+        }
+
+        .hero-section {
+            min-height: 100vh;
+            background: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.4)), url("{% static 'monitoring/images/landing page.jpg' %}");
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            background-repeat: no-repeat;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 40px;
+            position: relative;
+            z-index: 10;
+            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .logo:hover {
+            color: #4ade80;
+            transition: color 0.3s ease;
+        }
+
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: #4ade80;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            box-shadow: 0 4px 12px rgba(74, 222, 128, 0.3);
+        }
+
+        .sign-in-btn {
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+            backdrop-filter: blur(10px);
+        }
+
+        .sign-in-btn:hover {
+            background: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            color: #333;
+        }
+
+        /* Main Content */
+        .hero-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 0 40px;
+            max-width: 900px;
+            margin: 0 auto;
+            animation: fadeInUp 1s ease-out;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .hero-title {
+            color: white;
+            font-size: 4rem;
+            font-weight: bold;
+            margin-bottom: 15px;
+            text-shadow: 2px 2px 8px rgba(0, 0, 0, 0.7);
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+        }
+
+        .hero-subtitle {
+            color: white;
+            font-size: 2.2rem;
+            font-weight: 600;
+            margin-bottom: 35px;
+            text-shadow: 2px 2px 6px rgba(0, 0, 0, 0.6);
+            line-height: 1.2;
+            letter-spacing: -0.01em;
+        }
+
+        .hero-description {
+            color: rgba(255, 255, 255, 0.95);
+            font-size: 1.2rem;
+            line-height: 1.7;
+            margin-bottom: 45px;
+            max-width: 650px;
+            text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.6);
+            font-weight: 400;
+        }
+
+        .get-started-btn {
+            background: linear-gradient(135deg, #4ade80, #22c55e);
+            color: white;
+            padding: 18px 45px;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 6px 20px rgba(74, 222, 128, 0.4);
+            text-decoration: none;
+            display: inline-block;
+            text-transform: capitalize;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .get-started-btn:before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .get-started-btn:hover:before {
+            left: 100%;
+        }
+
+        .get-started-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(74, 222, 128, 0.5);
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+        }
+
+        .get-started-btn:active {
+            transform: translateY(-1px);
+        }
+
+        /* Decorative Elements */
+        .hero-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at 30% 20%, rgba(74, 222, 128, 0.1) 0%, transparent 50%),
+                        radial-gradient(circle at 70% 80%, rgba(34, 197, 94, 0.1) 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 1024px) {
+            .hero-title {
+                font-size: 3.5rem;
+            }
+            
+            .hero-subtitle {
+                font-size: 2rem;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                padding: 15px 20px;
+            }
+
+            .hero-content {
+                padding: 0 20px;
+            }
+
+            .hero-title {
+                font-size: 2.8rem;
+                margin-bottom: 12px;
+            }
+
+            .hero-subtitle {
+                font-size: 1.6rem;
+                margin-bottom: 25px;
+            }
+
+            .hero-description {
+                font-size: 1.1rem;
+                margin-bottom: 35px;
+                line-height: 1.6;
+            }
+
+            .get-started-btn {
+                padding: 15px 35px;
+                font-size: 1.1rem;
+            }
+
+            .hero-section {
+                background-attachment: scroll;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .header {
+                padding: 12px 15px;
+            }
+
+            .logo {
+                font-size: 18px;
+            }
+
+            .logo-icon {
+                width: 28px;
+                height: 28px;
+                font-size: 16px;
+            }
+
+            .sign-in-btn {
+                padding: 10px 18px;
+                font-size: 14px;
+            }
+
+            .hero-title {
+                font-size: 2.2rem;
+                margin-bottom: 10px;
+            }
+
+            .hero-subtitle {
+                font-size: 1.4rem;
+                margin-bottom: 20px;
+            }
+
+            .hero-description {
+                font-size: 1rem;
+                margin-bottom: 30px;
+                max-width: 100%;
+            }
+
+            .get-started-btn {
+                padding: 14px 30px;
+                font-size: 1rem;
+            }
+        }
+
+        /* Additional accessibility and performance improvements */
+        @media (prefers-reduced-motion: reduce) {
+            .hero-content {
+                animation: none;
+            }
+            
+            .get-started-btn:before {
+                transition: none;
+            }
+            
+            .get-started-btn:hover:before {
+                left: -100%;
+            }
+        }
+
+        /* Focus styles for accessibility */
+        .get-started-btn:focus,
+        .sign-in-btn:focus {
+            outline: 3px solid #4ade80;
+            outline-offset: 2px;
+        }
+
+        /* Print styles */
+        @media print {
+            .hero-section {
+                background: white;
+                color: black;
+                min-height: auto;
+            }
+            
+            .hero-title,
+            .hero-subtitle,
+            .hero-description {
+                color: black;
+                text-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="hero-section">
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon">🌱</div>
+                <span>HarvestPro</span>
+            </div>
+            <button class="sign-in-btn">Sign In</button>
+        </header>
+
+        <main class="hero-content">
+            <h1 class="hero-title">Welcome to HarvestPro</h1>
+            <h2 class="hero-subtitle">Smarter Harvest, Better Future</h2>
+            <p class="hero-description">
+                Track, manage, and analyze your crop harvests with ease. Our platform helps farmers and agro-experts monitor harvest cycles, view real-time updates, and make informed decisions to boost productivity and sustainability.
+            </p>
+            <button class="get-started-btn">Get started</button>
+        </main>
+    </div>
+
+    <script>
+        // Add smooth scrolling and loading optimization
+        document.addEventListener('DOMContentLoaded', function() {
+            // Preload critical images
+            const img = new Image();
+            img.src = "{% static 'monitoring/images/landing page.jpg' %}";
+            
+            // Add loading indicator
+            const heroSection = document.querySelector('.hero-section');
+            heroSection.style.opacity = '0';
+            heroSection.style.transition = 'opacity 0.5s ease-in-out';
+            
+            img.onload = function() {
+                heroSection.style.opacity = '1';
+            };
+            
+            // Fallback in case image takes too long
+            setTimeout(() => {
+                heroSection.style.opacity = '1';
+            }, 2000);
+            
+            // Add click analytics (optional)
+            const getStartedBtn = document.querySelector('.get-started-btn');
+            getStartedBtn.addEventListener('click', function() {
+                // Redirect to login page
+                window.location.href = '/login/';
+            });
+        });
+
+        // Optimize background image loading for mobile
+        if (window.innerWidth <= 768) {
+            document.querySelector('.hero-section').style.backgroundAttachment = 'scroll';
+        }
+    </script>
+</body>
+</html>

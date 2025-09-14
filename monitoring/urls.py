@@ -8,6 +8,8 @@ app_name = 'monitoring'
 
 urlpatterns = [
     # Authentication URLs
+    path('', views.landing_page, name='home'),
+
     path('login/', CustomLoginView.as_view(), name='login'),
     path('logout/', CustomLogoutView.as_view(), name='logout'),
 
@@ -59,6 +61,7 @@ urlpatterns = [
     # Reports
     path('reports/', views.reports, name='reports'),
     path('reports/download/<int:report_id>/', views.download_report, name='download_report'),
+    
     # Notifications
     path('notifications/', views.notifications, name='notifications'),
     

@@ -754,19 +754,29 @@ class GeneratedReport(models.Model):
         ("excel", "Excel Spreadsheet"),
         ("csv", "CSV File"),
     ]
+    STATUS_CHOICES = [  # NEW: Added status field
+        ('pending', 'Pending'),
+        ('generated', 'Generated'),
+        ('failed', 'Failed'),
+    ]
 
     template = models.ForeignKey(ReportTemplate, on_delete=models.SET_NULL, null=True, blank=True)
     name = models.CharField(max_length=200)
     report_type = models.CharField(max_length=50)  # keep copy even if template is deleted
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')  # NEW
     generated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     generated_at = models.DateTimeField(auto_now_add=True)
     from_date = models.DateField()
     to_date = models.DateField()
     export_format = models.CharField(max_length=10, choices=EXPORT_FORMATS)
     file = models.FileField(upload_to="reports/", blank=True, null=True)  # uploaded/generated file
+    error_message = models.TextField(blank=True, null=True)  # NEW: For failed reports
 
     def __str__(self):
         return f"{self.name} ({self.export_format.upper()})"
+
+    class Meta:
+        ordering = ['-generated_at']
 
 
 class ReportActivityLog(models.Model):
@@ -1027,3 +1037,10 @@ InventoryItem.add_to_class('objects', InventoryItemManager())
 
 
 
+class Notification(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    notification_type = models.CharField(max_length=20, choices=[('harvest', 'Harvest'), ('inventory', 'Inventory')])
+    priority = models.CharField(max_length=10, choices=[('high', 'High'), ('medium', 'Medium')])
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)

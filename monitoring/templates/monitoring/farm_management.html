@@ -1128,9 +1128,9 @@
             showMethod: 'fadeIn',
             hideMethod: 'fadeOut'
         };
-        toastr.success('Farm Management loaded successfully!', 'success');
+        toastr.success('Farm Management loaded successfully!', 'Success');
 
-        // Add subtle animations to cards (matching harvest_record)
+        // Add subtle animations to cards
         const cards = document.querySelectorAll('.metric-card, .farm-card, .section');
         cards.forEach((card, index) => {
             card.style.opacity = '0';
@@ -1370,7 +1370,7 @@
         }
     });
 
-    // Remove original showToast function since we're using toastr.js
+    // View farm details
     function viewFarm(farmId) {
         const detailContent = document.getElementById('detailContent');
         detailContent.innerHTML = '<div style="text-align: center; padding: 20px;">Loading...</div>';
@@ -1435,7 +1435,13 @@
             });
     }
 
+    // Edit farm - Load modal data via fetch, submit naturally
     function editFarm(farmId) {
+        const form = document.getElementById('addFarmForm');
+        const fieldsContainer = document.getElementById('fieldsContainer');
+        fieldsContainer.innerHTML = '';
+        fieldCounter = 0;
+        
         fetch(`/monitoring/farm/edit/${farmId}/`)
             .then(response => {
                 if (!response.ok) {
@@ -1450,8 +1456,6 @@
                     document.getElementById('addFarmForm').action = `/monitoring/farm/edit/${farmId}/`;
                     document.getElementById('submitButton').textContent = 'Update Farm & Fields';
                     
-                    const form = document.getElementById('addFarmForm');
-                    
                     form.querySelector('[name="name"]').value = data.farm.name || '';
                     form.querySelector('[name="location"]').value = data.farm.location || '';
                     form.querySelector('[name="soil_type"]').value = data.farm.soil_type || '';
@@ -1462,10 +1466,6 @@
                     document.querySelectorAll('[name="crop_types"]').forEach(checkbox => {
                         checkbox.checked = data.farm.crop_types.includes(checkbox.value);
                     });
-                    
-                    const fieldsContainer = document.getElementById('fieldsContainer');
-                    fieldsContainer.innerHTML = '';
-                    fieldCounter = 0;
                     
                     if (data.farm.fields && data.farm.fields.length > 0) {
                         document.querySelector('.add-field-btn').style.display = 'none';
@@ -1544,57 +1544,49 @@
             });
     }
 
+    // Delete farm - Use form submission to handle redirect
     function deleteFarm(farmId) {
         if (confirm('Are you sure you want to delete this farm? This action cannot be undone.')) {
-            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = `/monitoring/farm/delete/${farmId}/`;
             
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
             if (!csrfToken) {
                 toastr.error('Security token not found. Please refresh the page and try again.', 'Error');
                 return;
             }
             
-            fetch(`/monitoring/farm/delete/${farmId}/`, {
-                method: 'DELETE',
-                headers: {
-                    'X-CSRFToken': csrfToken,
-                    'Content-Type': 'application/json',
-                },
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                }
-                return response.json();
-            })
-            .then(data => {
-                if (data.success) {
-                    toastr.success(data.message || 'Farm deleted successfully', 'Success');
-                    setTimeout(() => {
-                        location.reload();
-                    }, 1000);
-                } else {
-                    throw new Error(data.error || 'Failed to delete farm');
-                }
-            })
-            .catch(error => {
-                console.error('Error deleting farm:', error);
-                toastr.error(`Error deleting farm: ${error.message}`, 'Error');
-            });
+            const csrfInput = document.createElement('input');
+            csrfInput.type = 'hidden';
+            csrfInput.name = 'csrfmiddlewaretoken';
+            csrfInput.value = csrfToken;
+            form.appendChild(csrfInput);
+            
+            const methodInput = document.createElement('input');
+            methodInput.type = 'hidden';
+            methodInput.name = '_method';
+            methodInput.value = 'DELETE';
+            form.appendChild(methodInput);
+            
+            document.body.appendChild(form);
+            form.submit();
         }
     }
 
-    // Enhanced form submission handler
+    // Form submission handler for add/edit
     document.getElementById('addFarmForm').addEventListener('submit', function(e) {
-        e.preventDefault();
-        
+        // Don't prevent default unless validation fails
         const fields = document.querySelectorAll('.field-item').length;
         if (fields === 0) {
+            e.preventDefault();
             toastr.warning('Please add at least one field to the farm.', 'Warning');
             return;
         }
         
         const farmName = document.querySelector('[name="name"]').value.trim();
         if (!farmName) {
+            e.preventDefault();
             toastr.warning('Farm name is required.', 'Warning');
             return;
         }
@@ -1604,46 +1596,23 @@
             const fieldName = fieldItems[i].querySelector('[name*="[name]"]').value.trim();
             const fieldArea = fieldItems[i].querySelector('[name*="[area_hectares]"]').value.trim();
             
-            if (!fieldName || !fieldArea) {
-                toastr.warning(`Field ${i + 1} is missing required information (name and area).`, 'Warning');
+            if (!fieldName || !fieldArea || parseFloat(fieldArea) <= 0) {
+                e.preventDefault();
+                toastr.warning(`Field ${i + 1} is missing required information (name and area must be > 0).`, 'Warning');
                 return;
             }
         }
         
+        // Show loading state and let the form submit
         const submitButton = document.getElementById('submitButton');
         const originalText = submitButton.textContent;
         submitButton.textContent = 'Saving...';
         submitButton.disabled = true;
         
-        fetch(this.action, {
-            method: 'POST',
-            body: new FormData(this)
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.success) {
-                toastr.success(data.message || 'Farm saved successfully', 'Success');
-                hideAddFarmModal();
-                setTimeout(() => {
-                    location.reload();
-                }, 1000);
-            } else {
-                throw new Error(data.error || 'Failed to save farm');
-            }
-        })
-        .catch(error => {
-            console.error('Error saving farm:', error);
-            toastr.error(`Error saving farm: ${error.message}`, 'Error');
-        })
-        .finally(() => {
+        setTimeout(() => {
             submitButton.textContent = originalText;
             submitButton.disabled = false;
-        });
+        }, 2000);
     });
 
     // Keyboard navigation
