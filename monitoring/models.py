@@ -3,13 +3,9 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 from django.core.validators import MinValueValidator, MaxValueValidator
 from decimal import Decimal
-from datetime import date
-from django.db.models import Sum, Count, Avg
-from django.db.models.signals import post_save
-from django.dispatch import receiver
-
-from django.db import models
-from django.utils import timezone
+from datetime import date, timedelta
+from django.db.models import Sum, Count, Avg, Q
+from collections import defaultdict
 from django.apps import apps
 
 class UserProfile(models.Model):
@@ -24,7 +20,7 @@ class UserProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='field_worker')
     supabase_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
-    phone_number = models.CharField(max_length=20, blank=True, null=True)
+    phone_number = models.CharField(max_length=20, blank=True, null=True, default='')
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
@@ -36,60 +32,41 @@ class UserProfile(models.Model):
     def __str__(self):
         return f"{self.user.get_full_name() or self.user.username} - {self.get_role_display()}"
 
-    
-    # Enhanced permission properties
     @property
     def can_manage_farms(self):
-        """Check if user can manage farms"""
         return self.role in ['admin', 'farm_manager']
     
     @property
     def can_track_harvests(self):
-        """Check if user can track harvests"""
         return self.role in ['admin', 'farm_manager', 'field_supervisor', 'field_worker']
     
     @property
     def can_manage_inventory(self):
-        """Check if user can manage inventory"""
         return self.role in ['admin', 'inventory_manager']
     
     @property
     def can_supervise_fields(self):
-        """Check if user can supervise fields"""
         return self.role in ['admin', 'farm_manager', 'field_supervisor']
     
     @property
     def can_view_analytics(self):
-        """Check if user can view analytics"""
         return self.role in ['admin', 'farm_manager', 'field_supervisor']
     
     @property
     def can_generate_reports(self):
-        """Check if user can generate reports"""
         return self.role in ['admin', 'farm_manager', 'inventory_manager']
     
     @property
     def can_manage_users(self):
-        """Check if user can manage other users"""
         return self.role == 'admin'
     
     @property
     def can_view_notifications(self):
-        """Check if user can view notifications"""
-        return True  # All users can view notifications
+        return True
     
     def get_accessible_menu_items(self):
-        """Return menu items based on user role"""
-        menu_items = []
+        menu_items = [{'name': 'Dashboard', 'url': 'dashboard', 'icon': 'dashboard'}]
         
-        # Dashboard - accessible to all roles
-        menu_items.append({
-            'name': 'Dashboard',
-            'url': 'dashboard',
-            'icon': 'dashboard'
-        })
-        
-        # Role-specific menu items
         if self.role == 'admin':
             menu_items.extend([
                 {'name': 'Farm Management', 'url': 'farm_management', 'icon': 'farm'},
@@ -100,7 +77,6 @@ class UserProfile(models.Model):
                 {'name': 'Notifications', 'url': 'notifications', 'icon': 'notifications'},
                 {'name': 'User Management', 'url': 'user_management', 'icon': 'users'},
             ])
-        
         elif self.role == 'farm_manager':
             menu_items.extend([
                 {'name': 'Farm Management', 'url': 'farm_management', 'icon': 'farm'},
@@ -110,21 +86,18 @@ class UserProfile(models.Model):
                 {'name': 'Reports', 'url': 'reports', 'icon': 'reports'},
                 {'name': 'Notifications', 'url': 'notifications', 'icon': 'notifications'},
             ])
-        
         elif self.role == 'field_supervisor':
             menu_items.extend([
                 {'name': 'Harvest Tracking', 'url': 'harvest_tracking', 'icon': 'harvest'},
                 {'name': 'Analytics', 'url': 'analytics', 'icon': 'analytics'},
                 {'name': 'Notifications', 'url': 'notifications', 'icon': 'notifications'},
             ])
-        
         elif self.role == 'inventory_manager':
             menu_items.extend([
                 {'name': 'Inventory', 'url': 'inventory', 'icon': 'inventory'},
                 {'name': 'Reports', 'url': 'reports', 'icon': 'reports'},
                 {'name': 'Notifications', 'url': 'notifications', 'icon': 'notifications'},
             ])
-        
         elif self.role == 'field_worker':
             menu_items.extend([
                 {'name': 'Harvest Tracking', 'url': 'harvest_tracking', 'icon': 'harvest'},
@@ -135,7 +108,11 @@ class UserProfile(models.Model):
     
     def get_queryset_for_model(self, model_name):
         """Get filtered queryset based on user role and permissions"""
-        from django.apps import apps
+        Farm = apps.get_model('monitoring', 'Farm')
+        Field = apps.get_model('monitoring', 'Field')
+        HarvestRecord = apps.get_model('monitoring', 'HarvestRecord')
+        Inventory = apps.get_model('monitoring', 'Inventory')
+        InventoryItem = apps.get_model('monitoring', 'InventoryItem')
         
         if model_name == 'Farm':
             if self.role == 'admin':
@@ -143,7 +120,6 @@ class UserProfile(models.Model):
             elif self.role == 'farm_manager':
                 return Farm.objects.filter(manager=self.user)
             elif self.role in ['field_supervisor', 'field_worker']:
-                # Can see farms where they supervise fields
                 return Farm.objects.filter(field__supervisor=self.user).distinct()
             else:
                 return Farm.objects.none()
@@ -172,23 +148,20 @@ class UserProfile(models.Model):
             if self.role in ['admin', 'inventory_manager']:
                 return Inventory.objects.all()
             elif self.role == 'farm_manager':
-                # Farm managers can see inventory from their farms
                 return Inventory.objects.filter(harvest_record__field__farm__manager=self.user)
             else:
                 return Inventory.objects.none()
         
-        elif model_name == 'InventoryItem':  # NEW CASE
+        elif model_name == 'InventoryItem':
             if self.role in ['admin', 'inventory_manager']:
                 return InventoryItem.objects.all()
             elif self.role == 'farm_manager':
-                # Farm managers see items added by their farm's users (via added_by or transactions)
                 return InventoryItem.objects.filter(added_by__userprofile__role='farm_manager', 
                                                    added_by__userprofile__user__managed_farms__manager=self.user).distinct()
             else:
                 return InventoryItem.objects.none()
         
-        # Default: return empty queryset for unknown models
-        return apps.get_model('your_app', model_name).objects.none()
+        return apps.get_model('monitoring', model_name).objects.none()
     
     def can_access_object(self, obj):
         """Check if user can access a specific object"""
@@ -213,13 +186,14 @@ class UserProfile(models.Model):
                    (self.role == 'farm_manager' and obj.harvest_record and 
                     obj.harvest_record.field.farm.manager == self.user)
         
-        elif isinstance(obj, InventoryItem):  # NEW CASE
+        elif isinstance(obj, InventoryItem):
             return self.role in ['admin', 'inventory_manager'] or \
                    (self.role == 'farm_manager' and obj.added_by and 
                     obj.added_by.userprofile.role == 'farm_manager' and 
                     obj.added_by.userprofile.user.managed_farms.filter(manager=self.user).exists())
         
         return False
+
 class Farm(models.Model):
     """
     Farm model with all required fields for admin interface
@@ -239,25 +213,25 @@ class Farm(models.Model):
         help_text="Total farm area in hectares"
     )
     description = models.TextField(blank=True, help_text="Farm description")
-    contact_phone = models.CharField(max_length=20, blank=True)
+    contact_phone = models.CharField(max_length=20, blank=True, default='', null=True)  # Fixed: default='', null=True
     contact_email = models.EmailField(blank=True)
     established_date = models.DateField(null=True, blank=True)
-    soil_type = models.CharField(max_length=100, blank=True)
-    climate_zone = models.CharField(max_length=100, blank=True)
-    water_source = models.CharField(max_length=100, blank=True)
-    certifications = models.CharField(max_length=200, blank=True, help_text="Organic, Fair Trade, etc.")
+    soil_type = models.CharField(max_length=100, blank=True, default='')
+    climate_zone = models.CharField(max_length=100, blank=True, default='')
+    water_source = models.CharField(max_length=100, blank=True, default='')
+    certifications = models.CharField(max_length=200, blank=True, default='', help_text="Organic, Fair Trade, etc.")
     is_active = models.BooleanField(default=True, help_text="Is this farm currently active?")
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
-    notes = models.TextField(blank=True)
+    notes = models.TextField(blank=True, default='')
     
     # Added for template compatibility
-    calculated_total_area = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, editable=False)
+    calculated_total_area = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'), editable=False)
     calculated_field_count = models.IntegerField(default=0, editable=False)
     # ManyToMany for crop types (from template checkboxes)
     crop_types = models.ManyToManyField('CropType', blank=True, related_name='farms')
     # For yield calculations
-    calculated_avg_yield = models.DecimalField(max_digits=8, decimal_places=2, default=0.00, editable=False)
+    calculated_avg_yield = models.DecimalField(max_digits=8, decimal_places=2, default=Decimal('0.00'), editable=False)
     
     class Meta:
         verbose_name = "Farm"
@@ -309,7 +283,7 @@ class Farm(models.Model):
         current_year = timezone.now().year
         return self.field_set.aggregate(
             total=Sum('harvestrecord_set__quantity_tons', 
-                     filter=models.Q(harvestrecord_set__harvest_date__year=current_year))
+                     filter=Q(harvestrecord_set__harvest_date__year=current_year))
         )['total'] or Decimal('0.00')
     
     @property
@@ -330,7 +304,6 @@ class Farm(models.Model):
     @property
     def primary_crop(self):
         """Get the most common crop type in this farm"""
-        from collections import defaultdict
         crop_counts = defaultdict(int)
         for field in self.field_set.all():
             crop_counts[field.crop.name] += 1
@@ -358,8 +331,6 @@ class Farm(models.Model):
     @property
     def upcoming_harvests(self):
         """Get fields with upcoming harvests (next 30 days)"""
-        from datetime import timedelta
-        from django.utils import timezone
         thirty_days = timezone.now().date() + timedelta(days=30)
         return self.field_set.filter(
             expected_harvest_date__lte=thirty_days,
@@ -371,11 +342,12 @@ class Farm(models.Model):
         """Get harvest total for a specific month"""
         return self.field_set.aggregate(
             total=Sum('harvestrecord_set__quantity_tons',
-                     filter=models.Q(
+                     filter=Q(
                          harvestrecord_set__harvest_date__year=year,
                          harvestrecord_set__harvest_date__month=month
                      ))
         )['total'] or Decimal('0.00')
+
 class Crop(models.Model):
     CROP_TYPES = [
         ('cereal', 'Cereal'),
@@ -387,7 +359,7 @@ class Crop(models.Model):
     ]
     
     name = models.CharField(max_length=100)
-    variety = models.CharField(max_length=100, blank=True)
+    variety = models.CharField(max_length=100, blank=True, default='')
     crop_type = models.CharField(max_length=20, choices=CROP_TYPES, default='other')
     growing_season_days = models.PositiveIntegerField(
         null=True, 
@@ -401,7 +373,7 @@ class Crop(models.Model):
         blank=True,
         help_text="Expected yield in tons per hectare"
     )
-    description = models.TextField(blank=True)
+    description = models.TextField(blank=True, default='')
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -419,7 +391,6 @@ class Crop(models.Model):
         """Get display name for crop"""
         return f"{self.name} ({self.variety})" if self.variety else self.name
 
-
 class Field(models.Model):
     farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name='field_set')
     name = models.CharField(max_length=100)
@@ -432,17 +403,17 @@ class Field(models.Model):
     planting_date = models.DateField()
     expected_harvest_date = models.DateField()
     supervisor = models.ForeignKey(User, on_delete=models.CASCADE, related_name='supervised_fields')
-    soil_quality = models.CharField(max_length=50, blank=True, choices=[
+    soil_quality = models.CharField(max_length=50, blank=True, default='', null=True, choices=[
         ('', 'Select quality'),
         ('excellent', 'Excellent'),
         ('good', 'Good'),
         ('average', 'Average'),
         ('poor', 'Poor'),
     ])
-    soil_type = models.CharField(max_length=100, blank=True)
-    irrigation_type = models.CharField(max_length=100, blank=True)
+    soil_type = models.CharField(max_length=100, blank=True, default='', null=True)
+    irrigation_type = models.CharField(max_length=100, blank=True, default='', null=True)
     is_active = models.BooleanField(default=True)
-    notes = models.TextField(blank=True)
+    notes = models.TextField(blank=True, default='', null=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -508,7 +479,6 @@ class Field(models.Model):
             return min(float((actual / expected) * 100), 100)
         return 0.0
 
-
 class HarvestRecord(models.Model):
     QUALITY_GRADES = [
         ('A', 'Grade A - Premium'),
@@ -529,11 +499,10 @@ class HarvestRecord(models.Model):
     quality_grade = models.CharField(max_length=1, choices=QUALITY_GRADES)
     harvested_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='harvested_records')
     status = models.CharField(max_length=20, default='completed', choices=STATUS_CHOICES)
-    weather_conditions = models.CharField(max_length=100, blank=True)
+    weather_conditions = models.CharField(max_length=100, blank=True, default='', null=True)
     moisture_content = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    notes = models.TextField(blank=True)
+    notes = models.TextField(blank=True, default='', null=True)
     
-    # Add this field
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_harvest_records', null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -611,11 +580,9 @@ class HarvestRecord(models.Model):
             raise ValidationError("Harvest date cannot be in the future.")
         
         if self.field and self.quantity_tons and self.field.area_hectares:
-            # Check if yield is unreasonably high (more than 50 tons per hectare)
             yield_per_hectare = self.quantity_tons / self.field.area_hectares
             if yield_per_hectare > 50:
                 raise ValidationError("Yield per hectare seems unreasonably high. Please verify the quantity.")
-
 
 class Inventory(models.Model):
     STORAGE_CONDITIONS = [
@@ -632,7 +599,7 @@ class Inventory(models.Model):
         decimal_places=2,
         validators=[MinValueValidator(Decimal('0.00'))]
     )
-    storage_location = models.CharField(max_length=200)
+    storage_location = models.CharField(max_length=200, default='')
     storage_condition = models.CharField(
         max_length=20, 
         choices=STORAGE_CONDITIONS, 
@@ -641,7 +608,7 @@ class Inventory(models.Model):
     quality_grade = models.CharField(max_length=1, choices=HarvestRecord.QUALITY_GRADES)
     date_stored = models.DateField(default=timezone.now)
     expiry_date = models.DateField(null=True, blank=True)
-    batch_number = models.CharField(max_length=50, blank=True)
+    batch_number = models.CharField(max_length=50, blank=True, default='')
     managed_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='managed_inventory')
     harvest_record = models.ForeignKey(
         HarvestRecord, 
@@ -658,7 +625,7 @@ class Inventory(models.Model):
         help_text="Price per ton"
     )
     is_reserved = models.BooleanField(default=False)
-    notes = models.TextField(blank=True)
+    notes = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -711,11 +678,6 @@ class Inventory(models.Model):
         
         if self.quantity_tons and self.quantity_tons < 0:
             raise ValidationError("Quantity cannot be negative.")
-        
-        
-        
-        
-
 
 class ReportTemplate(models.Model):
     """Pre-configured report formats (Monthly Harvest, Yield Performance, etc.)"""
@@ -738,14 +700,13 @@ class ReportTemplate(models.Model):
     ]
 
     title = models.CharField(max_length=150)
-    description = models.TextField(blank=True)
+    description = models.TextField(blank=True, default='')
     report_type = models.CharField(max_length=50, choices=REPORT_TYPES)
     frequency = models.CharField(max_length=20, choices=FREQUENCY_CHOICES, blank=True, null=True)
-    last_generated = models.DateField(blank=True, null=True)
+    last_generated = models.DateField(null=True, blank=True)
 
     def __str__(self):
         return self.title
-
 
 class GeneratedReport(models.Model):
     """Stores reports generated by users"""
@@ -754,7 +715,7 @@ class GeneratedReport(models.Model):
         ("excel", "Excel Spreadsheet"),
         ("csv", "CSV File"),
     ]
-    STATUS_CHOICES = [  # NEW: Added status field
+    STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('generated', 'Generated'),
         ('failed', 'Failed'),
@@ -762,22 +723,21 @@ class GeneratedReport(models.Model):
 
     template = models.ForeignKey(ReportTemplate, on_delete=models.SET_NULL, null=True, blank=True)
     name = models.CharField(max_length=200)
-    report_type = models.CharField(max_length=50)  # keep copy even if template is deleted
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')  # NEW
+    report_type = models.CharField(max_length=50)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
     generated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     generated_at = models.DateTimeField(auto_now_add=True)
     from_date = models.DateField()
     to_date = models.DateField()
     export_format = models.CharField(max_length=10, choices=EXPORT_FORMATS)
-    file = models.FileField(upload_to="reports/", blank=True, null=True)  # uploaded/generated file
-    error_message = models.TextField(blank=True, null=True)  # NEW: For failed reports
+    file = models.FileField(upload_to="reports/", blank=True, null=True)
+    error_message = models.TextField(blank=True, null=True, default='')
 
     def __str__(self):
         return f"{self.name} ({self.export_format.upper()})"
 
     class Meta:
         ordering = ['-generated_at']
-
 
 class ReportActivityLog(models.Model):
     """Track user actions on reports (optional, for auditing)"""
@@ -795,19 +755,11 @@ class ReportActivityLog(models.Model):
     def __str__(self):
         return f"{self.user.username} {self.action} {self.report.name}"
 
-
-# monitoring/models.py (add these models to your existing models.py)
-
-from django.db import models
-from django.contrib.auth.models import User
-from django.utils import timezone
-from datetime import date, timedelta
-
 class StorageLocation(models.Model):
     """Model for storage locations/warehouses"""
     name = models.CharField(max_length=100, unique=True)
     code = models.CharField(max_length=10, unique=True, help_text="Short code (e.g., WH-A)")
-    address = models.TextField(blank=True, null=True)
+    address = models.TextField(blank=True, null=True, default='')
     capacity_tons = models.DecimalField(max_digits=10, decimal_places=2, help_text="Maximum storage capacity in tons")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -831,7 +783,6 @@ class StorageLocation(models.Model):
             return (self.current_usage / float(self.capacity_tons)) * 100
         return 0
 
-
 class CropType(models.Model):
     """Model for different crop types"""
     CROP_CHOICES = [
@@ -847,9 +798,9 @@ class CropType(models.Model):
 
     name = models.CharField(max_length=50, choices=CROP_CHOICES, unique=True)
     display_name = models.CharField(max_length=100)
-    description = models.TextField(blank=True, null=True)
+    description = models.TextField(blank=True, null=True, default='')
     average_shelf_life_days = models.IntegerField(default=180, help_text="Average shelf life in days")
-    minimum_stock_threshold = models.DecimalField(max_digits=10, decimal_places=2, default=100.0, 
+    minimum_stock_threshold = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('100.00'), 
                                                 help_text="Alert when stock falls below this amount")
     is_active = models.BooleanField(default=True)
 
@@ -861,151 +812,15 @@ class CropType(models.Model):
 
 class InventoryItemManager(models.Manager):
     def get_summary_stats(self):
-        from django.db.models import Sum, Count
-        return self.aggregate(
-            total_quantity=Sum("quantity"),
-            total_items=Count("id"),
-        )
-class InventoryItem(models.Model):
-    """Main inventory model"""
-    QUALITY_CHOICES = [
-        ('A', 'Grade A - Premium'),
-        ('B', 'Grade B - Good'),
-        ('C', 'Grade C - Average'),
-        ('D', 'Grade D - Below Average'),
-    ]
-
-    STATUS_CHOICES = [
-        ('good', 'Good'),
-        ('low_stock', 'Low Stock'),
-        ('expiring', 'Expiring Soon'),
-        ('expired', 'Expired'),
-    ]
-
-    crop_type = models.ForeignKey(CropType, on_delete=models.CASCADE, related_name='inventory_items')
-    storage_location = models.ForeignKey(StorageLocation, on_delete=models.CASCADE, related_name='inventory_items')
-    quantity = models.DecimalField(max_digits=10, decimal_places=2, help_text="Quantity in tons")
-    quality_grade = models.CharField(max_length=1, choices=QUALITY_CHOICES)
-    date_stored = models.DateField(default=date.today)
-    expiry_date = models.DateField()
-    added_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='added_inventory')
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    # attach your custom manager properly here
-    objects = InventoryItemManager()
-
-    class Meta:
-        ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['crop_type', 'storage_location']),
-            models.Index(fields=['expiry_date']),
-            models.Index(fields=['date_stored']),
-        ]
-
-    def __str__(self):
-        return f"{self.crop_type.display_name} - {self.quantity}t @ {self.storage_location.name}"
-
-    @property
-    def status(self):
-        """Calculate current status based on expiry date and stock level"""
-        today = date.today()
-        days_until_expiry = (self.expiry_date - today).days
-        
-        # Check if expired
-        if days_until_expiry < 0:
-            return 'expired'
-        
-        # Check if expiring soon (within 30 days)
-        if days_until_expiry <= 30:
-            return 'expiring'
-        
-        # Check if low stock
-        if self.quantity <= self.crop_type.minimum_stock_threshold:
-            return 'low_stock'
-        
-        return 'good'
-
-    @property
-    def days_until_expiry(self):
-        """Calculate days until expiry"""
-        return (self.expiry_date - date.today()).days
-
-    @property
-    def is_expired(self):
-        """Check if item is expired"""
-        return date.today() > self.expiry_date
-
-    @property
-    def is_expiring_soon(self):
-        """Check if item is expiring within 30 days"""
-        return 0 <= self.days_until_expiry <= 30
-
-
-class InventoryTransaction(models.Model):
-    """Model to track all inventory changes for audit trail"""
-    ACTION_CHOICES = [
-        ('ADD', 'Added to Inventory'),
-        ('REMOVE', 'Removed from Inventory'),
-        ('ADJUST', 'Quantity Adjusted'),
-        ('EXPIRED', 'Marked as Expired'),
-    ]
-
-    inventory_item = models.ForeignKey(InventoryItem, on_delete=models.CASCADE, related_name='transactions')
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
-    action_type = models.CharField(max_length=10, choices=ACTION_CHOICES)
-    quantity = models.DecimalField(max_digits=10, decimal_places=2, help_text="Quantity affected (positive or negative)")
-    previous_quantity = models.DecimalField(max_digits=10, decimal_places=2, help_text="Quantity before this transaction")
-    new_quantity = models.DecimalField(max_digits=10, decimal_places=2, help_text="Quantity after this transaction")
-    notes = models.TextField(blank=True, null=True, help_text="Additional notes about this transaction")
-    timestamp = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['-timestamp']
-        indexes = [
-            models.Index(fields=['timestamp']),
-            models.Index(fields=['action_type']),
-            models.Index(fields=['user']),
-        ]
-
-    def __str__(self):
-        return f"{self.action_type} - {self.quantity}t of {self.inventory_item.crop_type.display_name} by {self.user}"
-
-    @property
-    def quantity_display(self):
-        """Display quantity with appropriate sign"""
-        if self.action_type in ['ADD', 'ADJUST'] and self.quantity > 0:
-            return f"+{self.quantity}"
-        elif self.action_type == 'REMOVE':
-            return f"-{abs(self.quantity)}"
-        return str(self.quantity)
-
-
-# Manager class for common queries
-class InventoryItemManager(models.Manager):
-    def get_summary_stats(self):
         """Get summary statistics for dashboard"""
         from django.db.models import Sum, Count
         
         queryset = self.get_queryset()
         
-        # Total inventory
-        total_inventory = queryset.aggregate(
-            total=Sum('quantity')
-        )['total'] or 0
-        
-        # Storage locations count
+        total_inventory = queryset.aggregate(total=Sum('quantity'))['total'] or 0
         storage_locations_count = StorageLocation.objects.filter(is_active=True).count()
-        
-        # Low stock items
-        low_stock_count = 0
-        expiring_count = 0
-        
-        for item in queryset:
-            if item.status == 'low_stock':
-                low_stock_count += 1
-            elif item.status in ['expiring', 'expired']:
-                expiring_count += 1
+        low_stock_count = sum(1 for item in queryset if item.status == 'low_stock')
+        expiring_count = sum(1 for item in queryset if item.status in ['expiring', 'expired'])
         
         return {
             'total_inventory': total_inventory,
@@ -1031,11 +846,114 @@ class InventoryItemManager(models.Manager):
         """Get expired items"""
         return self.filter(expiry_date__lt=date.today())
 
+class InventoryItem(models.Model):
+    """Main inventory model"""
+    QUALITY_CHOICES = [
+        ('A', 'Grade A - Premium'),
+        ('B', 'Grade B - Good'),
+        ('C', 'Grade C - Average'),
+        ('D', 'Grade D - Below Average'),
+    ]
 
-# Add the custom manager to InventoryItem
-InventoryItem.add_to_class('objects', InventoryItemManager())
+    STATUS_CHOICES = [
+        ('good', 'Good'),
+        ('low_stock', 'Low Stock'),
+        ('expiring', 'Expiring Soon'),
+        ('expired', 'Expired'),
+    ]
 
+    crop_type = models.ForeignKey(CropType, on_delete=models.CASCADE, related_name='inventory_items')
+    storage_location = models.ForeignKey(StorageLocation, on_delete=models.CASCADE, related_name='inventory_items')
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, help_text="Quantity in tons")
+    quality_grade = models.CharField(max_length=1, choices=QUALITY_CHOICES)
+    date_stored = models.DateField(default=date.today)
+    expiry_date = models.DateField()
+    added_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='added_inventory')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
+    objects = InventoryItemManager()
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['crop_type', 'storage_location']),
+            models.Index(fields=['expiry_date']),
+            models.Index(fields=['date_stored']),
+        ]
+
+    def __str__(self):
+        return f"{self.crop_type.display_name} - {self.quantity}t @ {self.storage_location.name}"
+
+    @property
+    def status(self):
+        """Calculate current status based on expiry date and stock level"""
+        today = date.today()
+        days_until_expiry = (self.expiry_date - today).days
+        
+        if days_until_expiry < 0:
+            return 'expired'
+        
+        if days_until_expiry <= 30:
+            return 'expiring'
+        
+        if self.quantity <= self.crop_type.minimum_stock_threshold:
+            return 'low_stock'
+        
+        return 'good'
+
+    @property
+    def days_until_expiry(self):
+        """Calculate days until expiry"""
+        return (self.expiry_date - date.today()).days
+
+    @property
+    def is_expired(self):
+        """Check if item is expired"""
+        return date.today() > self.expiry_date
+
+    @property
+    def is_expiring_soon(self):
+        """Check if item is expiring within 30 days"""
+        return 0 <= self.days_until_expiry <= 30
+
+class InventoryTransaction(models.Model):
+    """Model to track all inventory changes for audit trail"""
+    ACTION_CHOICES = [
+        ('ADD', 'Added to Inventory'),
+        ('REMOVE', 'Removed from Inventory'),
+        ('ADJUST', 'Quantity Adjusted'),
+        ('EXPIRED', 'Marked as Expired'),
+    ]
+
+    inventory_item = models.ForeignKey(InventoryItem, on_delete=models.CASCADE, related_name='transactions')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    action_type = models.CharField(max_length=10, choices=ACTION_CHOICES)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, help_text="Quantity affected (positive or negative)")
+    previous_quantity = models.DecimalField(max_digits=10, decimal_places=2, help_text="Quantity before this transaction")
+    new_quantity = models.DecimalField(max_digits=10, decimal_places=2, help_text="Quantity after this transaction")
+    notes = models.TextField(blank=True, null=True, default='')
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['timestamp']),
+            models.Index(fields=['action_type']),
+            models.Index(fields=['user']),
+        ]
+
+    def __str__(self):
+        return f"{self.action_type} - {self.quantity}t of {self.inventory_item.crop_type.display_name} by {self.user}"
+
+    @property
+    def quantity_display(self):
+        """Display quantity with appropriate sign"""
+        if self.action_type in ['ADD', 'ADJUST'] and self.quantity > 0:
+            return f"+{self.quantity}"
+        elif self.action_type == 'REMOVE':
+            return f"-{abs(self.quantity)}"
+        return str(self.quantity)
 
 class Notification(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -1044,3 +962,6 @@ class Notification(models.Model):
     message = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
     is_read = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.user.username} - {self.notification_type} ({self.priority})"
