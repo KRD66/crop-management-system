@@ -41,6 +41,7 @@ urlpatterns = [
     path('farm/delete/<int:farm_id>/', views.farm_delete, name='farm_delete'),
     #harvest tracking
     path('harvests/', views.harvest_tracking, name='harvest_tracking'),
+    path('harvest-details/<int:harvest_id>/', views.harvest_details, name='harvest_details'),
     
     # Analytics
     path('analytics/', views.analytics, name='analytics'),

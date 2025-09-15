@@ -1255,7 +1255,7 @@ def update_harvest_record(request):
     except Exception as e:
         messages.error(request, f'Error updating harvest record: {str(e)}')
     
-    return redirect('"monitoring:harvest_tracking"')
+    return redirect('monitoring:harvest_tracking')  # Fixed: removed extra quotes
 
 
 def delete_harvest_record(request):
@@ -1264,7 +1264,7 @@ def delete_harvest_record(request):
         harvest_id = request.POST.get('harvest_id')
         if not harvest_id:
             messages.error(request, 'Invalid harvest record.')
-            return redirect('harvest_tracking')
+            return redirect('monitoring:harvest_tracking')
         
         harvest_record = get_object_or_404(HarvestRecord, id=harvest_id)
         
