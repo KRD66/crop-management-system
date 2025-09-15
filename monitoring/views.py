@@ -314,7 +314,30 @@ from django.db.models import Q
 from django.http import JsonResponse
 from django.contrib.auth.models import User
 from django.views.decorators.http import require_POST
+from django.urls import reverse
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 import json
+
+# Import your models
+from .models import UserProfile
+
+# You need to define or import this decorator
+def role_required(roles):
+    """Decorator to check if user has required role"""
+    def decorator(view_func):
+        def _wrapped_view(request, *args, **kwargs):
+            if not hasattr(request.user, 'userprofile'):
+                messages.error(request, 'Access denied. No profile found.')
+                return redirect('monitoring:dashboard')
+            
+            if request.user.userprofile.role not in roles:
+                messages.error(request, 'Access denied. Insufficient permissions.')
+                return redirect('monitoring:dashboard')
+            
+            return view_func(request, *args, **kwargs)
+        return _wrapped_view
+    return decorator
 
 @role_required(['admin'])
 @login_required
@@ -361,7 +384,7 @@ def user_management(request):
         'search_query': search_query,
         'role_filter': role_filter,
         'status_filter': status_filter,
-        'role_choices': UserProfile.ROLE_CHOICES if hasattr(UserProfile, 'ROLE_CHOICES') else [],
+        'role_choices': UserProfile.ROLE_CHOICES,
         'stats': stats,
         'can_manage_users': True
     }
@@ -379,40 +402,69 @@ def user_edit_ajax(request, user_id):
     
     if request.method == 'GET':
         # Return user data for modal
+        try:
+            profile = user.userprofile
+        except UserProfile.DoesNotExist:
+            return JsonResponse({'error': 'User profile not found.'}, status=404)
+        
         user_data = {
             'id': user.id,
             'username': user.username,
             'first_name': user.first_name,
             'last_name': user.last_name,
             'email': user.email,
-            'role': user.userprofile.role,
-            'is_active': user.userprofile.is_active,
-            'farm_access': getattr(user.userprofile, 'farm_access', [])  # Adjust based on your model
+            'role': profile.role,
+            'is_active': profile.is_active,
+            'phone_number': getattr(profile, 'phone_number', ''),
         }
         return JsonResponse({'user': user_data})
     
     elif request.method == 'POST':
         # Handle form submission via AJAX
         try:
+            # Parse JSON data
             data = json.loads(request.body)
+            
+            # Validate required fields
+            required_fields = ['first_name', 'last_name', 'email', 'role']
+            for field in required_fields:
+                if not data.get(field, '').strip():
+                    return JsonResponse({
+                        'success': False, 
+                        'error': f'{field.replace("_", " ").title()} is required.'
+                    }, status=400)
+            
+            # Validate email uniqueness
+            email = data.get('email', '').strip()
+            if User.objects.filter(email=email).exclude(id=user.id).exists():
+                return JsonResponse({
+                    'success': False, 
+                    'error': 'Email address is already in use by another user.'
+                }, status=400)
+            
+            # Validate role
+            role = data.get('role')
+            valid_roles = [choice[0] for choice in UserProfile.ROLE_CHOICES]
+            if role not in valid_roles:
+                return JsonResponse({
+                    'success': False, 
+                    'error': 'Invalid role selected.'
+                }, status=400)
             
             # Update user fields
             user.first_name = data.get('first_name', '').strip()
             user.last_name = data.get('last_name', '').strip()
-            user.email = data.get('email', '').strip()
+            user.email = email
             user.save()
             
             # Update user profile
             profile = user.userprofile
-            profile.role = data.get('role', profile.role)
-            profile.is_active = data.get('is_active', profile.is_active)
+            profile.role = role
+            profile.is_active = data.get('is_active', True)
             
-            # Handle farm access if applicable
-            if 'farm_access' in data:
-                # Adjust this based on your UserProfile model structure
-                farm_access = data.get('farm_access', [])
-                if hasattr(profile, 'farm_access'):
-                    profile.farm_access = farm_access
+            # Handle phone number if provided
+            if 'phone_number' in data:
+                profile.phone_number = data.get('phone_number', '').strip()
             
             profile.save()
             
@@ -421,11 +473,16 @@ def user_edit_ajax(request, user_id):
                 'message': f'User {user.username} updated successfully.'
             })
             
+        except json.JSONDecodeError:
+            return JsonResponse({
+                'success': False, 
+                'error': 'Invalid JSON data provided.'
+            }, status=400)
         except Exception as e:
             return JsonResponse({
                 'success': False, 
                 'error': f'Error updating user: {str(e)}'
-            }, status=400)
+            }, status=500)
     
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
@@ -435,7 +492,6 @@ def user_edit(request, user_id):
     """Redirect to user management with edit parameter - for backwards compatibility"""
     return redirect(f"{reverse('monitoring:user_management')}?edit_user={user_id}")
 
-# Keep your existing user_deactivate, user_activate, user_delete views as they are
 @login_required
 @role_required(['admin'])
 @require_POST
