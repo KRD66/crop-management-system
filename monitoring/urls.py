@@ -26,6 +26,7 @@ urlpatterns = [
     path('users/<int:user_id>/activate/', views.user_activate, name='user_activate'),
     path('users/<int:user_id>/delete/', views.user_delete, name='user_delete'),
     path('users/<int:user_id>/reset-password/', views.user_reset_password, name='user_reset_password'),
+    path('users/edit-ajax/<int:user_id>/', views.user_edit_ajax, name='user_edit_ajax'),  # New AJAX endpoint
     
     # Profile Management
     path('profile/', views.profile_view, name='profile'),

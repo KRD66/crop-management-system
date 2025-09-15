@@ -306,6 +306,16 @@ def dashboard(request):
 # ========================
 # USER MANAGEMENT VIEWS
 # ========================
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from django.contrib import messages
+from django.core.paginator import Paginator
+from django.db.models import Q
+from django.http import JsonResponse
+from django.contrib.auth.models import User
+from django.views.decorators.http import require_POST
+import json
+
 @role_required(['admin'])
 @login_required
 def user_management(request):
@@ -358,46 +368,77 @@ def user_management(request):
     
     return render(request, 'monitoring/user_management.html', context)
 
-
+@login_required
+@role_required(['admin'])
+def user_edit_ajax(request, user_id):
+    """Get user data for modal editing - Admin only"""
+    user = get_object_or_404(User, id=user_id)
+    
+    if user.is_superuser and not request.user.is_superuser:
+        return JsonResponse({'error': 'You cannot edit superuser accounts.'}, status=403)
+    
+    if request.method == 'GET':
+        # Return user data for modal
+        user_data = {
+            'id': user.id,
+            'username': user.username,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'email': user.email,
+            'role': user.userprofile.role,
+            'is_active': user.userprofile.is_active,
+            'farm_access': getattr(user.userprofile, 'farm_access', [])  # Adjust based on your model
+        }
+        return JsonResponse({'user': user_data})
+    
+    elif request.method == 'POST':
+        # Handle form submission via AJAX
+        try:
+            data = json.loads(request.body)
+            
+            # Update user fields
+            user.first_name = data.get('first_name', '').strip()
+            user.last_name = data.get('last_name', '').strip()
+            user.email = data.get('email', '').strip()
+            user.save()
+            
+            # Update user profile
+            profile = user.userprofile
+            profile.role = data.get('role', profile.role)
+            profile.is_active = data.get('is_active', profile.is_active)
+            
+            # Handle farm access if applicable
+            if 'farm_access' in data:
+                # Adjust this based on your UserProfile model structure
+                farm_access = data.get('farm_access', [])
+                if hasattr(profile, 'farm_access'):
+                    profile.farm_access = farm_access
+            
+            profile.save()
+            
+            return JsonResponse({
+                'success': True, 
+                'message': f'User {user.username} updated successfully.'
+            })
+            
+        except Exception as e:
+            return JsonResponse({
+                'success': False, 
+                'error': f'Error updating user: {str(e)}'
+            }, status=400)
+    
+    return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 @login_required
 @role_required(['admin'])
 def user_edit(request, user_id):
-    """Edit user - Admin only"""
-    user = get_object_or_404(User, id=user_id)
-    
-    if user.is_superuser and not request.user.is_superuser:
-        messages.error(request, 'You cannot edit superuser accounts.')
-        return redirect('monitoring:user_management')
-    
-    if request.method == 'POST':
-        form = UserProfileUpdateForm(request.POST, instance=user.userprofile, user=user)
-        if form.is_valid():
-            try:
-                form.save()
-                messages.success(request, f'User {user.username} updated successfully.')
-                return redirect('monitoring:user_management')
-            except Exception as e:
-                messages.error(request, f'Error updating user: {str(e)}')
-        else:
-            for field, errors in form.errors.items():
-                for error in errors:
-                    messages.error(request, f'{field.title()}: {error}')
-    else:
-        form = UserProfileUpdateForm(instance=user.userprofile, user=user)
-    
-    context = {
-        'form': form,
-        'user': user,
-        'title': f'Edit User: {user.username}',
-        'submit_text': 'Update User'
-    }
-    return render(request, 'monitoring/user_form.html', context)
+    """Redirect to user management with edit parameter - for backwards compatibility"""
+    return redirect(f"{reverse('monitoring:user_management')}?edit_user={user_id}")
 
-
+# Keep your existing user_deactivate, user_activate, user_delete views as they are
 @login_required
 @role_required(['admin'])
-@require_http_methods(["POST"])
+@require_POST
 def user_deactivate(request, user_id):
     """Deactivate user - Admin only"""
     user = get_object_or_404(User, id=user_id)
@@ -406,26 +447,18 @@ def user_deactivate(request, user_id):
         messages.error(request, 'You cannot deactivate superuser accounts.')
         return redirect('monitoring:user_management')
     
-    if user == request.user:
-        messages.error(request, 'You cannot deactivate your own account.')
-        return redirect('monitoring:user_management')
-    
     try:
         user.userprofile.is_active = False
         user.userprofile.save()
-        user.is_active = False
-        user.save()
-        
         messages.success(request, f'User {user.username} has been deactivated.')
     except Exception as e:
         messages.error(request, f'Error deactivating user: {str(e)}')
     
     return redirect('monitoring:user_management')
 
-
 @login_required
 @role_required(['admin'])
-@require_http_methods(["POST"])
+@require_POST
 def user_activate(request, user_id):
     """Activate user - Admin only"""
     user = get_object_or_404(User, id=user_id)
@@ -433,19 +466,15 @@ def user_activate(request, user_id):
     try:
         user.userprofile.is_active = True
         user.userprofile.save()
-        user.is_active = True
-        user.save()
-        
         messages.success(request, f'User {user.username} has been activated.')
     except Exception as e:
         messages.error(request, f'Error activating user: {str(e)}')
     
     return redirect('monitoring:user_management')
 
-
 @login_required
 @role_required(['admin'])
-@require_http_methods(["POST"])
+@require_POST
 def user_delete(request, user_id):
     """Delete user - Admin only"""
     user = get_object_or_404(User, id=user_id)
@@ -461,13 +490,11 @@ def user_delete(request, user_id):
     try:
         username = user.username
         user.delete()
-        messages.success(request, f'User {username} has been deleted.')
+        messages.success(request, f'User {username} has been deleted successfully.')
     except Exception as e:
         messages.error(request, f'Error deleting user: {str(e)}')
     
     return redirect('monitoring:user_management')
-
-
 @login_required
 @role_required(['admin'])
 def user_reset_password(request, user_id):

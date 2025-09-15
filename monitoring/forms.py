@@ -818,3 +818,54 @@ class CropTypeForm(forms.ModelForm):
                 'placeholder': '100.00'
             }),
         }
+        
+        
+
+class UserProfileUpdateForm(forms.ModelForm):
+    first_name = forms.CharField(max_length=30, required=True)
+    last_name = forms.CharField(max_length=30, required=True)
+    email = forms.EmailField(required=True)
+    
+    # Farm access fields - adjust these based on your actual model structure
+    FARM_CHOICES = [
+        ('north_field', 'North Field'),
+        ('south_field', 'South Field'),
+        ('east_field', 'East Field'),
+        ('west_field', 'West Field'),
+        ('central_field', 'Central Field'),
+        ('all_farms', 'All Farms'),
+    ]
+    
+    farm_access = forms.MultipleChoiceField(
+        choices=FARM_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+        required=False
+    )
+    
+    class Meta:
+        model = UserProfile
+        fields = ['role', 'is_active', 'farm_access']  # Adjust based on your UserProfile model
+        
+    def __init__(self, *args, **kwargs):
+        self.user = kwargs.pop('user', None)
+        super().__init__(*args, **kwargs)
+        
+        if self.user:
+            self.fields['first_name'].initial = self.user.first_name
+            self.fields['last_name'].initial = self.user.last_name
+            self.fields['email'].initial = self.user.email
+    
+    def save(self, commit=True):
+        profile = super().save(commit=False)
+        
+        if self.user:
+            # Update User model fields
+            self.user.first_name = self.cleaned_data['first_name']
+            self.user.last_name = self.cleaned_data['last_name']
+            self.user.email = self.cleaned_data['email']
+            
+            if commit:
+                self.user.save()
+                profile.save()
+        
+        return profile        
