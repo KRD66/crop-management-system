@@ -27,27 +27,43 @@
             display: flex;
             flex-direction: column;
             position: relative;
-            overflow: hidden; /* Ensure overlay stays within bounds */
+            overflow: hidden;
         }
 
-        /* Floating Gradient Overlay */
-        .hero-section::before {
+        /* Shapeless Rapid Popping Rainbow Overlay */
+        .hero-section::before,
+        .hero-section::after {
             content: '';
             position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(45deg, rgba(0, 0, 0, 0.4), rgba(74, 222, 128, 0.2), rgba(0, 0, 0, 0.3));
-            animation: floatGradient 8s ease-in-out infinite;
+            width: 300px;
+            height: 300px;
+            background: linear-gradient(45deg, red, orange, yellow, green, blue, indigo, violet);
+            opacity: 0;
             z-index: 1; /* Above background, below content */
             pointer-events: none; /* Allow clicks to pass through */
+            animation: rainbowFlash 0.4s infinite;
         }
 
-        @keyframes floatGradient {
-            0% { transform: translateY(0) scale(1); }
-            50% { transform: translateY(-20px) scale(1.02); }
-            100% { transform: translateY(0) scale(1); }
+        .hero-section::after {
+            animation-delay: 0.2s; /* Offset for overlapping flashes */
+        }
+
+        @keyframes rainbowFlash {
+            0% { opacity: 0; }
+            20% { opacity: 0.3; transform: translate(var(--x), var(--y)); }
+            80% { opacity: 0.3; }
+            100% { opacity: 0; transform: translate(0, 0); }
+        }
+
+        /* Randomize positions using CSS custom properties */
+        .hero-section::before {
+            --x: 70vw; /* Random X (right side) */
+            --y: 20vh; /* Random Y (middle top) */
+        }
+
+        .hero-section::after {
+            --x: 30vw; /* Random X (left side) */
+            --y: 80vh; /* Random Y (middle bottom) */
         }
 
         /* Header */
@@ -124,7 +140,7 @@
             margin: 0 auto;
             animation: fadeInUp 1s ease-out;
             position: relative;
-            z-index: 2; /* Above the gradient overlay */
+            z-index: 2; /* Above the rainbow overlay */
         }
 
         @keyframes fadeInUp {
@@ -269,6 +285,12 @@
             .hero-section {
                 background-attachment: scroll;
             }
+
+            .hero-section::before,
+            .hero-section::after {
+                width: 200px;
+                height: 200px; /* Adjusted for mobile */
+            }
         }
 
         @media (max-width: 480px) {
@@ -311,6 +333,12 @@
                 padding: 14px 30px;
                 font-size: 1rem;
             }
+
+            .hero-section::before,
+            .hero-section::after {
+                width: 150px;
+                height: 150px; /* Adjusted for small screens */
+            }
         }
 
         /* Additional accessibility and performance improvements */
@@ -327,7 +355,8 @@
                 left: -100%;
             }
 
-            .hero-section::before {
+            .hero-section::before,
+            .hero-section::after {
                 animation: none;
                 transform: none;
             }
@@ -359,7 +388,13 @@
 </head>
 <body>
     <div class="hero-section">
-     
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon">🌱</div>
+                <span>HarvestPro</span>
+            </div>
+        </header>
+
         <main class="hero-content">
             <h1 class="hero-title">Welcome to HarvestPro</h1>
             <h2 class="hero-subtitle">Smarter Harvest, Better Future</h2>
