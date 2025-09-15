@@ -30,40 +30,31 @@
             overflow: hidden;
         }
 
-        /* Shapeless Rapid Popping Rainbow Overlay */
+        /* Full-Screen Rapid Flash Rainbow Overlay */
         .hero-section::before,
         .hero-section::after {
             content: '';
             position: absolute;
-            width: 300px;
-            height: 300px;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             background: linear-gradient(45deg, red, orange, yellow, green, blue, indigo, violet);
             opacity: 0;
             z-index: 1; /* Above background, below content */
             pointer-events: none; /* Allow clicks to pass through */
-            animation: rainbowFlash 0.4s infinite;
+            animation: rainbowFullFlash 0.4s infinite;
         }
 
         .hero-section::after {
             animation-delay: 0.2s; /* Offset for overlapping flashes */
         }
 
-        @keyframes rainbowFlash {
+        @keyframes rainbowFullFlash {
             0% { opacity: 0; }
-            20% { opacity: 0.3; transform: translate(var(--x), var(--y)); }
+            20% { opacity: 0.3; }
             80% { opacity: 0.3; }
-            100% { opacity: 0; transform: translate(0, 0); }
-        }
-
-        /* Randomize positions using CSS custom properties */
-        .hero-section::before {
-            --x: 70vw; /* Random X (right side) */
-            --y: 20vh; /* Random Y (middle top) */
-        }
-
-        .hero-section::after {
-            --x: 30vw; /* Random X (left side) */
-            --y: 80vh; /* Random Y (middle bottom) */
+            100% { opacity: 0; }
         }
 
         /* Header */
@@ -285,12 +276,6 @@
             .hero-section {
                 background-attachment: scroll;
             }
-
-            .hero-section::before,
-            .hero-section::after {
-                width: 200px;
-                height: 200px; /* Adjusted for mobile */
-            }
         }
 
         @media (max-width: 480px) {
@@ -332,12 +317,6 @@
             .get-started-btn {
                 padding: 14px 30px;
                 font-size: 1rem;
-            }
-
-            .hero-section::before,
-            .hero-section::after {
-                width: 150px;
-                height: 150px; /* Adjusted for small screens */
             }
         }
 
@@ -393,6 +372,7 @@
                 <div class="logo-icon">🌱</div>
                 <span>HarvestPro</span>
             </div>
+            <a href="/login/" class="sign-in-btn">Sign In</a>
         </header>
 
         <main class="hero-content">
