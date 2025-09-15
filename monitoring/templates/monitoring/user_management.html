@@ -3,11 +3,6 @@
 
 {% block title %}User Management - HarvestPro{% endblock %}
 
-{% block header_content %}
-<h1>User Management</h1>
-<p>Manage user accounts and permissions</p>
-{% endblock %}
-
 {% block extra_css %}
 <!-- Toastr CSS for green notifications -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css">
@@ -313,7 +308,7 @@
         border-radius: 12px;
         padding: 24px;
         width: 90%;
-        max-width: 500px;
+        max-width: 600px;
         max-height: 90vh;
         overflow-y: auto;
         position: relative;
@@ -397,6 +392,21 @@
         background-color: #f9fafb;
         color: #6b7280;
         cursor: not-allowed;
+    }
+
+    .form-checkbox-group {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 10px;
+    }
+
+    .form-checkbox-group label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.875rem;
+        color: #374151;
     }
 
     .modal-actions {
@@ -808,6 +818,11 @@
                 </div>
                 
                 <div class="form-group">
+                    <label for="edit_phone_number">Phone Number</label>
+                    <input type="text" id="edit_phone_number" name="phone_number">
+                </div>
+                
+                <div class="form-group">
                     <label for="edit_role">Role *</label>
                     <select id="edit_role" name="role" required>
                         <option value="">Select Role</option>
@@ -823,6 +838,18 @@
                         <option value="true">Active</option>
                         <option value="false">Inactive</option>
                     </select>
+                </div>
+                
+                <div class="form-group full-width">
+                    <label>Farm Access</label>
+                    <div class="form-checkbox-group">
+                        {% for value, label in form.farm_access.choices %}
+                            <label>
+                                <input type="checkbox" name="farm_access" value="{{ value }}">
+                                {{ label }}
+                            </label>
+                        {% endfor %}
+                    </div>
                 </div>
             </div>
             
@@ -965,7 +992,7 @@
                 'Content-Type': 'application/json',
                 'X-CSRFToken': getCSRFToken(),
             },
-            credentials: 'same-origin', // Include cookies
+            credentials: 'same-origin',
         })
         .then(response => {
             if (!response.ok) {
@@ -1000,7 +1027,7 @@
 
     // Function to populate edit form with user data
     function populateEditForm(userData) {
-        console.log('Populating form with:', userData); // Debug log
+        console.log('Populating form with:', userData);
         
         // Clear form first
         document.getElementById('editUserForm').reset();
@@ -1009,8 +1036,15 @@
         document.getElementById('edit_first_name').value = userData.first_name || '';
         document.getElementById('edit_last_name').value = userData.last_name || '';
         document.getElementById('edit_email').value = userData.email || '';
+        document.getElementById('edit_phone_number').value = userData.phone_number || '';
         document.getElementById('edit_role').value = userData.role || '';
         document.getElementById('edit_status').value = userData.is_active ? 'true' : 'false';
+        
+        // Handle farm access checkboxes
+        const farmAccessCheckboxes = document.querySelectorAll('input[name="farm_access"]');
+        farmAccessCheckboxes.forEach(checkbox => {
+            checkbox.checked = userData.farm_access.includes(checkbox.value);
+        });
     }
 
     // Function to close edit modal
@@ -1049,8 +1083,10 @@
             first_name: formData.get('first_name')?.trim() || '',
             last_name: formData.get('last_name')?.trim() || '',
             email: formData.get('email')?.trim() || '',
+            phone_number: formData.get('phone_number')?.trim() || '',
             role: formData.get('role') || '',
             is_active: formData.get('is_active') === 'true',
+            farm_access: formData.getAll('farm_access') || [],
         };
         
         // Basic client-side validation
@@ -1082,7 +1118,7 @@
             return;
         }
         
-        console.log('Submitting user data:', userData); // Debug log
+        console.log('Submitting user data:', userData);
         
         toastr.info('Updating user...', 'Please wait');
         
@@ -1094,7 +1130,7 @@
                 'Content-Type': 'application/json',
                 'X-CSRFToken': getCSRFToken(),
             },
-            credentials: 'same-origin', // Include cookies
+            credentials: 'same-origin',
             body: JSON.stringify(userData)
         })
         .then(response => {
@@ -1115,7 +1151,14 @@
                     window.location.reload();
                 }, 1000);
             } else {
-                throw new Error(data.error || 'Update failed');
+                // Handle specific form errors
+                if (data.errors) {
+                    Object.entries(data.errors).forEach(([field, error]) => {
+                        toastr.error(error, `Validation Error: ${field.replace('_', ' ')}`);
+                    });
+                } else {
+                    throw new Error(data.error || 'Update failed');
+                }
             }
         })
         .catch(error => {

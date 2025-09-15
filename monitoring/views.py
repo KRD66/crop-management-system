@@ -390,23 +390,22 @@ def user_management(request):
     }
     
     return render(request, 'monitoring/user_management.html', context)
-
 @login_required
 @role_required(['admin'])
 def user_edit_ajax(request, user_id):
-    """Get user data for modal editing - Admin only"""
+    """Handle AJAX requests for user editing - Admin only"""
     user = get_object_or_404(User, id=user_id)
     
     if user.is_superuser and not request.user.is_superuser:
         return JsonResponse({'error': 'You cannot edit superuser accounts.'}, status=403)
     
+    try:
+        profile = user.userprofile
+    except UserProfile.DoesNotExist:
+        return JsonResponse({'error': 'User profile not found.'}, status=404)
+    
     if request.method == 'GET':
         # Return user data for modal
-        try:
-            profile = user.userprofile
-        except UserProfile.DoesNotExist:
-            return JsonResponse({'error': 'User profile not found.'}, status=404)
-        
         user_data = {
             'id': user.id,
             'username': user.username,
@@ -415,7 +414,8 @@ def user_edit_ajax(request, user_id):
             'email': user.email,
             'role': profile.role,
             'is_active': profile.is_active,
-            'phone_number': getattr(profile, 'phone_number', ''),
+            'phone_number': profile.phone_number or '',
+            'farm_access': profile.farm_access or [],
         }
         return JsonResponse({'user': user_data})
     
@@ -425,62 +425,33 @@ def user_edit_ajax(request, user_id):
             # Parse JSON data
             data = json.loads(request.body)
             
-            # Validate required fields
-            required_fields = ['first_name', 'last_name', 'email', 'role']
-            for field in required_fields:
-                if not data.get(field, '').strip():
-                    return JsonResponse({
-                        'success': False, 
-                        'error': f'{field.replace("_", " ").title()} is required.'
-                    }, status=400)
+            # Initialize form with user instance
+            form = UserProfileUpdateForm(data=data, user=user, instance=profile)
             
-            # Validate email uniqueness
-            email = data.get('email', '').strip()
-            if User.objects.filter(email=email).exclude(id=user.id).exists():
+            if form.is_valid():
+                # Save the form
+                form.save()
                 return JsonResponse({
-                    'success': False, 
-                    'error': 'Email address is already in use by another user.'
-                }, status=400)
-            
-            # Validate role
-            role = data.get('role')
-            valid_roles = [choice[0] for choice in UserProfile.ROLE_CHOICES]
-            if role not in valid_roles:
+                    'success': True,
+                    'message': f'User {user.username} updated successfully.'
+                })
+            else:
+                # Return form errors
+                errors = {field: errors[0] for field, errors in form.errors.items()}
                 return JsonResponse({
-                    'success': False, 
-                    'error': 'Invalid role selected.'
+                    'success': False,
+                    'error': 'Form validation failed',
+                    'errors': errors
                 }, status=400)
-            
-            # Update user fields
-            user.first_name = data.get('first_name', '').strip()
-            user.last_name = data.get('last_name', '').strip()
-            user.email = email
-            user.save()
-            
-            # Update user profile
-            profile = user.userprofile
-            profile.role = role
-            profile.is_active = data.get('is_active', True)
-            
-            # Handle phone number if provided
-            if 'phone_number' in data:
-                profile.phone_number = data.get('phone_number', '').strip()
-            
-            profile.save()
-            
-            return JsonResponse({
-                'success': True, 
-                'message': f'User {user.username} updated successfully.'
-            })
-            
+                
         except json.JSONDecodeError:
             return JsonResponse({
-                'success': False, 
+                'success': False,
                 'error': 'Invalid JSON data provided.'
             }, status=400)
         except Exception as e:
             return JsonResponse({
-                'success': False, 
+                'success': False,
                 'error': f'Error updating user: {str(e)}'
             }, status=500)
     
