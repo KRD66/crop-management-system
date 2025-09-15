@@ -36,11 +36,11 @@ urlpatterns = [
     # Farm Management
     path('farm/management/', views.farm_management, name='farm_management'),
     path('farm/add/', views.farm_add, name='farm_add'),
-    path('farm/delete/<int:farm_id>/', views.farm_delete, name='farm_delete'),
     path('farm/detail/<int:farm_id>/', views.farm_detail, name='farm_detail'),
     path('farm/edit/<int:farm_id>/', views.farm_edit, name='farm_edit'),
-    # Harvest Tracking
-     path('harvests/', views.harvest_tracking, name='harvest_tracking'),
+    path('farm/delete/<int:farm_id>/', views.farm_delete, name='farm_delete'),
+    #harvest tracking
+    path('harvests/', views.harvest_tracking, name='harvest_tracking'),
     
     # Analytics
     path('analytics/', views.analytics, name='analytics'),

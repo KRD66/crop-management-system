@@ -1377,7 +1377,10 @@
         document.getElementById('detailModal').style.display = 'flex';
         document.body.style.overflow = 'hidden';
         
-        fetch(`/monitoring/farm/detail/${farmId}/`)
+        // Construct URL properly
+        const url = `/monitoring/farm/detail/${farmId}/`;
+        
+        fetch(url)
             .then(response => {
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -1435,14 +1438,17 @@
             });
     }
 
-    // Edit farm - Load modal data via fetch, submit naturally
+    // Edit farm - FIXED VERSION
     function editFarm(farmId) {
         const form = document.getElementById('addFarmForm');
         const fieldsContainer = document.getElementById('fieldsContainer');
         fieldsContainer.innerHTML = '';
         fieldCounter = 0;
         
-        fetch(`/monitoring/farm/edit/${farmId}/`)
+        // Construct URL properly
+        const url = `/monitoring/farm/edit/${farmId}/`;
+        
+        fetch(url)
             .then(response => {
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -1456,6 +1462,7 @@
                     document.getElementById('addFarmForm').action = `/monitoring/farm/edit/${farmId}/`;
                     document.getElementById('submitButton').textContent = 'Update Farm & Fields';
                     
+                    // Populate form fields
                     form.querySelector('[name="name"]').value = data.farm.name || '';
                     form.querySelector('[name="location"]').value = data.farm.location || '';
                     form.querySelector('[name="soil_type"]').value = data.farm.soil_type || '';
@@ -1463,10 +1470,12 @@
                     form.querySelector('[name="planting_date"]').value = data.farm.established_date || '';
                     form.querySelector('[name="notes"]').value = data.farm.notes || '';
                     
+                    // Handle checkboxes for crop types
                     document.querySelectorAll('[name="crop_types"]').forEach(checkbox => {
                         checkbox.checked = data.farm.crop_types.includes(checkbox.value);
                     });
                     
+                    // Populate fields
                     if (data.farm.fields && data.farm.fields.length > 0) {
                         document.querySelector('.add-field-btn').style.display = 'none';
                         
@@ -1532,6 +1541,7 @@
                         document.querySelector('.add-field-btn').style.display = 'block';
                     }
                     
+                    // Show the modal
                     document.getElementById('addOrEditFarmModal').style.display = 'flex';
                     document.body.style.overflow = 'hidden';
                 } else {
@@ -1544,34 +1554,44 @@
             });
     }
 
-    // Delete farm - Use form submission to handle redirect
+    // Delete farm - FIXED VERSION
     function deleteFarm(farmId) {
-        if (confirm('Are you sure you want to delete this farm? This action cannot be undone.')) {
-            const form = document.createElement('form');
-            form.method = 'POST';
-            form.action = `/monitoring/farm/delete/${farmId}/`;
-            
-            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
-            if (!csrfToken) {
-                toastr.error('Security token not found. Please refresh the page and try again.', 'Error');
-                return;
-            }
-            
+        if (!confirm('Are you sure you want to delete this farm? This action cannot be undone.')) {
+            return;
+        }
+        
+        // Create a hidden form and submit it
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/monitoring/farm/delete/${farmId}/`;
+        form.style.display = 'none';
+        
+        // Add CSRF token
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]');
+        if (csrfToken) {
             const csrfInput = document.createElement('input');
             csrfInput.type = 'hidden';
             csrfInput.name = 'csrfmiddlewaretoken';
-            csrfInput.value = csrfToken;
+            csrfInput.value = csrfToken.value;
             form.appendChild(csrfInput);
-            
-            const methodInput = document.createElement('input');
-            methodInput.type = 'hidden';
-            methodInput.name = '_method';
-            methodInput.value = 'DELETE';
-            form.appendChild(methodInput);
-            
-            document.body.appendChild(form);
-            form.submit();
+        } else {
+            // Get CSRF token from cookies as fallback
+            const csrfCookie = document.cookie.split(';').find(row => row.trim().startsWith('csrftoken='));
+            if (csrfCookie) {
+                const csrfInput = document.createElement('input');
+                csrfInput.type = 'hidden';
+                csrfInput.name = 'csrfmiddlewaretoken';
+                csrfInput.value = csrfCookie.split('=')[1];
+                form.appendChild(csrfInput);
+            } else {
+                toastr.error('Security token not found. Please refresh the page and try again.', 'Error');
+                return;
+            }
         }
+        
+        // Submit the form
+        document.body.appendChild(form);
+        form.submit();
     }
 
     // Form submission handler for add/edit

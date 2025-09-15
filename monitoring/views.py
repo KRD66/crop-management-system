@@ -855,7 +855,6 @@ def farm_add(request):
     
     # For GET, just redirect (modal handled client-side)
     return redirect('monitoring:farm_management')
-
 @login_required
 def farm_detail(request, farm_id):
     """
@@ -904,7 +903,6 @@ def farm_detail(request, farm_id):
         return JsonResponse({'success': False, 'error': f'Failed to load farm details: {str(e)}'}, status=500)
 
 @login_required
-@require_http_methods(['GET', 'POST'])
 def farm_edit(request, farm_id):
     """
     View to edit an existing farm and its fields.
@@ -912,7 +910,12 @@ def farm_edit(request, farm_id):
     POST: Updates farm and fields, sets success message, and redirects.
     """
     farm = get_object_or_404(Farm, id=farm_id)
-    user_profile = UserProfile.objects.get(user=request.user)
+    
+    try:
+        user_profile = UserProfile.objects.get(user=request.user)
+    except UserProfile.DoesNotExist:
+        messages.error(request, 'User profile not found.')
+        return redirect('monitoring:farm_management')
     
     if not user_profile.can_manage_farms:
         messages.error(request, 'You do not have permission to edit farms.')
@@ -1038,23 +1041,32 @@ def farm_edit(request, farm_id):
         return JsonResponse(data)
 
 @login_required
-@require_http_methods(['DELETE'])
 def farm_delete(request, farm_id):
     """
     View to delete a farm.
-    Deletes the farm and redirects with a success message.
+    Changed to accept POST instead of DELETE for better compatibility.
     """
     farm = get_object_or_404(Farm, id=farm_id)
-    user_profile = UserProfile.objects.get(user=request.user)
+    
+    try:
+        user_profile = UserProfile.objects.get(user=request.user)
+    except UserProfile.DoesNotExist:
+        messages.error(request, 'User profile not found.')
+        return redirect('monitoring:farm_management')
 
     if not user_profile.can_manage_farms:
         messages.error(request, 'You do not have permission to delete farms.')
         return redirect('monitoring:farm_management')
 
-    farm_name = farm.name
-    farm.delete()
-    messages.success(request, f'Farm "{farm_name}" deleted successfully.')
-    return redirect('monitoring:farm_management')
+    if request.method == 'POST':
+        farm_name = farm.name
+        farm.delete()
+        messages.success(request, f'Farm "{farm_name}" deleted successfully.')
+        return redirect('monitoring:farm_management')
+    else:
+        # If someone tries to access via GET, redirect back
+        messages.error(request, 'Invalid request method.')
+        return redirect('monitoring:farm_management')
 
 
 # ========================
