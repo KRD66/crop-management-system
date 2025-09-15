@@ -8,8 +8,6 @@ from django.db.models import Sum, Count, Avg, Q
 from collections import defaultdict
 from django.apps import apps
 
-
-
 class UserProfile(models.Model):
     ROLE_CHOICES = [
         ('admin', 'Admin'),
@@ -23,7 +21,6 @@ class UserProfile(models.Model):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='field_worker')
     supabase_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
     phone_number = models.CharField(max_length=20, blank=True, null=True, default='')
-    farm_access = models.JSONField(default=list, blank=True)  # Store farm access as JSON list
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
@@ -34,8 +31,6 @@ class UserProfile(models.Model):
     
     def __str__(self):
         return f"{self.user.get_full_name() or self.user.username} - {self.get_role_display()}"
-    
-    # Rest of the methods remain unchanged
 
     @property
     def can_manage_farms(self):
