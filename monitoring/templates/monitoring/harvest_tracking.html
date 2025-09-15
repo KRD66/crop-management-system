@@ -27,7 +27,7 @@
         display: flex;
         align-items: center;
         gap: 15px;
-        transition: transform 0.2s ease, box-shadow 0.2s ease; /* Added subtle hover for polish */
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
 
     .metric-card:hover {
@@ -39,8 +39,8 @@
         width: 50px;
         height: 50px;
         border-radius: 10px;
-        background: #f0fdf4; /* Light green bg matching inventory */
-        color: #16a34a; /* Green accent */
+        background: #f0fdf4;
+        color: #16a34a;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -52,7 +52,7 @@
         flex: 1;
         display: flex;
         flex-direction: column;
-        justify-content: center; /* Centers vertically */
+        justify-content: center;
     }
 
     .metric-label {
@@ -73,10 +73,10 @@
         font-size: 0.8rem;
     }
 
-    /* Section Styles (kept harvest-specific but aligned spacing) */
+    /* Section Styles */
     .section {
         background: white;
-        padding: 20px; /* Matched to inventory */
+        padding: 20px;
         border-radius: 12px;
         box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         margin-bottom: 20px;
@@ -86,7 +86,7 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 20px; /* Matched */
+        margin-bottom: 20px;
         flex-wrap: wrap;
         gap: 15px;
     }
@@ -95,7 +95,7 @@
         font-size: 1.25rem;
         font-weight: 600;
         color: #111827;
-        margin: 0 0 5px 0; /* Matched */
+        margin: 0 0 5px 0;
     }
 
     .section-header p {
@@ -108,7 +108,7 @@
         background: #111827;
         color: white;
         border: none;
-        padding: 10px 20px; /* Matched btn padding */
+        padding: 10px 20px;
         border-radius: 6px;
         cursor: pointer;
         display: inline-flex;
@@ -123,20 +123,20 @@
         background: #374151;
     }
 
-    /* Filter Section (kept as-is, but aligned gap) */
+    /* Filter Section */
     .filter-section {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 20px; /* Matched */
+        margin-bottom: 20px;
         gap: 15px;
     }
 
     .filter-dropdown {
-        padding: 10px 12px; /* Matched form-input */
+        padding: 10px 12px;
         border: 2px solid #e5e7eb;
         border-radius: 6px;
-        background: #f9fafb; /* Matched form bg */
+        background: #f9fafb;
         color: #374151;
         font-size: 0.875rem;
         cursor: pointer;
@@ -156,7 +156,7 @@
         font-size: 0.875rem;
     }
 
-    /* Table Styles (aligned to inventory-table) */
+    /* Table Styles */
     .harvest-table-wrapper {
         overflow-x: auto;
         border-radius: 8px;
@@ -167,7 +167,7 @@
     .harvest-table {
         width: 100%;
         border-collapse: collapse;
-        min-width: 800px; /* Matched */
+        min-width: 800px;
     }
 
     .harvest-table thead {
@@ -175,7 +175,7 @@
     }
 
     .harvest-table th {
-        padding: 12px 16px; /* Matched */
+        padding: 12px 16px;
         text-align: left;
         font-weight: 600;
         color: #374151;
@@ -184,7 +184,7 @@
     }
 
     .harvest-table td {
-        padding: 16px; /* Matched */
+        padding: 16px;
         border-bottom: 1px solid #f3f4f6;
         color: #6b7280;
         font-size: 0.875rem;
@@ -198,7 +198,7 @@
         border-bottom: none;
     }
 
-    /* Mobile Cards (kept, but aligned padding) */
+    /* Mobile Cards */
     .harvest-cards {
         display: none;
     }
@@ -209,7 +209,7 @@
         border-radius: 12px;
         padding: 20px;
         margin-bottom: 16px;
-        border-left: 4px solid #16a34a; /* Green to match theme */
+        border-left: 4px solid #16a34a;
     }
 
     .harvest-card-header {
@@ -259,13 +259,13 @@
         justify-content: center;
     }
 
-    /* Status and Grade Styling (aligned to inventory) */
+    /* Status and Grade Styling */
     .grade-a { background: #065f46; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
     .grade-b { background: #1f2937; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
     .grade-c { background: #6b7280; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
     .grade-d { background: #9ca3af; color: white; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
 
-    /* Action Buttons (matched btn styles) */
+    /* Action Buttons */
     .action-btn {
         border: none;
         padding: 8px 12px;
@@ -303,7 +303,7 @@
         background: #fee2e2; 
     }
 
-    /* Modal Styles (aligned to inventory modals) */
+    /* Modal Styles */
     .modal {
         position: fixed;
         top: 0; left: 0;
@@ -320,20 +320,20 @@
         background: white;
         border-radius: 12px;
         width: 100%;
-        max-width: 500px; /* Matched */
+        max-width: 500px;
         max-height: 90vh;
         overflow: hidden;
         box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
     }
 
     .modal-header {
-        padding: 20px 24px; /* Matched */
+        padding: 20px 24px;
         border-bottom: 1px solid #e5e7eb;
         position: relative;
     }
 
     .modal-header h2 {
-        margin: 0 0 4px 0; /* Adjusted */
+        margin: 0 0 4px 0;
         color: #111827;
         font-size: 1.25rem;
     }
@@ -362,11 +362,49 @@
     }
 
     .modal-body {
-        padding: 24px; /* Matched */
+        padding: 24px;
         max-height: calc(90vh - 140px);
         overflow-y: auto;
     }
 
+    /* View Modal Specific Styles */
+    .harvest-detail-grid {
+        display: grid;
+        gap: 20px;
+    }
+
+    .detail-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+    }
+
+    .detail-item {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .detail-label {
+        font-weight: 600;
+        color: #374151;
+        font-size: 0.875rem;
+    }
+
+    .detail-value {
+        color: #111827;
+        font-size: 0.9rem;
+        padding: 8px 12px;
+        background: #f9fafb;
+        border-radius: 6px;
+        border: 1px solid #e5e7eb;
+    }
+
+    .detail-value.full-width {
+        grid-column: 1 / -1;
+    }
+
+    /* Form Styles */
     .form-grid {
         display: grid;
         gap: 20px;
@@ -385,7 +423,7 @@
     }
 
     .form-label {
-        font-weight: 600; /* Matched */
+        font-weight: 600;
         color: #111827;
         font-size: 0.875rem;
     }
@@ -393,7 +431,7 @@
     .form-input,
     .form-select,
     .form-textarea {
-        padding: 10px 12px; /* Matched */
+        padding: 10px 12px;
         border: 2px solid #e5e7eb;
         border-radius: 6px;
         font-size: 0.875rem;
@@ -421,11 +459,11 @@
         display: flex;
         gap: 12px;
         justify-content: flex-end;
-        margin-top: 20px; /* Matched */
+        margin-top: 20px;
     }
 
     .btn {
-        padding: 10px 20px; /* Matched */
+        padding: 10px 20px;
         border-radius: 6px;
         cursor: pointer;
         font-size: 0.875rem;
@@ -457,7 +495,7 @@
         background: #374151;
     }
 
-    /* Empty State (aligned) */
+    /* Empty State */
     .empty-state {
         text-align: center;
         padding: 40px;
@@ -473,13 +511,13 @@
         display: block;
     }
 
-    /* Responsive Design (MATCHED to inventory.html) */
+    /* Responsive Design */
     @media (max-width: 1024px) {
         .metrics {
             grid-template-columns: repeat(2, 1fr);
         }
         
-        .form-row {
+        .form-row, .detail-row {
             grid-template-columns: 1fr;
             gap: 16px;
         }
@@ -534,7 +572,7 @@
             grid-template-columns: 1fr;
         }
 
-        /* Show cards, hide table on mobile (kept) */
+        /* Show cards, hide table on mobile */
         .harvest-table {
             display: none;
         }
@@ -584,7 +622,7 @@
 {% endblock %}
 
 {% block content %}
-<!-- Django Messages (kept) -->
+<!-- Django Messages -->
 {% if messages %}
     {% for message in messages %}
         <div class="alert alert-{{ message.tags }}" style="margin-bottom: 20px; padding: 12px; border-radius: 8px; 
@@ -598,7 +636,7 @@
     {% endfor %}
 {% endif %}
 
-<!-- Harvest Statistics Metrics (matching inventory structure/icons) -->
+<!-- Harvest Statistics Metrics -->
 <div class="metrics">
     <div class="metric-card">
         <div class="metric-icon">
@@ -645,7 +683,7 @@
     </div>
 </div>
 
-<!-- Rest of content unchanged (Harvest Records Section, Table, Mobile Cards, Modal) -->
+<!-- Harvest Records Section -->
 <div class="section">
     <div class="section-header">
         <div>
@@ -793,20 +831,76 @@
     </div>
 </div>
 
-<!-- Record Harvest Modal (unchanged structure) -->
+<!-- View Harvest Modal (Read-Only) -->
+<div id="viewHarvestModal" class="modal">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h2>Harvest Details</h2>
+            <p>View harvest record information</p>
+            <button class="modal-close" onclick="hideViewHarvestModal()">&times;</button>
+        </div>
+        
+        <div class="modal-body">
+            <div class="harvest-detail-grid">
+                <div class="detail-row">
+                    <div class="detail-item">
+                        <label class="detail-label">Field</label>
+                        <div class="detail-value" id="view-field-name"></div>
+                    </div>
+                    <div class="detail-item">
+                        <label class="detail-label">Harvest Date</label>
+                        <div class="detail-value" id="view-harvest-date"></div>
+                    </div>
+                </div>
+                
+                <div class="detail-row">
+                    <div class="detail-item">
+                        <label class="detail-label">Quantity</label>
+                        <div class="detail-value" id="view-quantity"></div>
+                    </div>
+                    <div class="detail-item">
+                        <label class="detail-label">Quality Grade</label>
+                        <div class="detail-value" id="view-quality-grade"></div>
+                    </div>
+                </div>
+                
+                <div class="detail-row">
+                    <div class="detail-item">
+                        <label class="detail-label">Harvested By</label>
+                        <div class="detail-value" id="view-harvested-by"></div>
+                    </div>
+                    <div class="detail-item">
+                        <label class="detail-label">Weather</label>
+                        <div class="detail-value" id="view-weather"></div>
+                    </div>
+                </div>
+                
+                <div class="detail-item">
+                    <label class="detail-label">Notes</label>
+                    <div class="detail-value full-width" id="view-notes"></div>
+                </div>
+            </div>
+            
+            <div class="form-actions">
+                <button type="button" onclick="hideViewHarvestModal()" class="btn btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Record New Harvest Modal -->
 <div id="recordHarvestModal" class="modal">
     <div class="modal-container">
         <div class="modal-header">
-            <h2 id="modal-title">Record New Harvest</h2>
-            <p id="modal-subtitle">Log harvest details including quantity, quality, and conditions</p>
+            <h2>Record New Harvest</h2>
+            <p>Log harvest details including quantity, quality, and conditions</p>
             <button class="modal-close" onclick="hideRecordHarvestModal()">&times;</button>
         </div>
         
         <div class="modal-body">
             <form id="recordHarvestForm" method="post" class="form-grid">
                 {% csrf_token %}
-                <input type="hidden" name="action" value="create" id="form-action">
-                <input type="hidden" name="harvest_id" value="" id="form-harvest-id">
+                <input type="hidden" name="action" value="create">
                 
                 <div class="form-row">
                     <div class="form-group">
@@ -871,7 +965,92 @@
 
                 <div class="form-actions">
                     <button type="button" onclick="hideRecordHarvestModal()" class="btn btn-secondary">Cancel</button>
-                    <button type="submit" class="btn btn-primary" id="submit-btn">Record Harvest</button>
+                    <button type="submit" class="btn btn-primary">Record Harvest</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Harvest Modal -->
+<div id="editHarvestModal" class="modal">
+    <div class="modal-container">
+        <div class="modal-header">
+            <h2>Edit Harvest Record</h2>
+            <p>Update harvest details</p>
+            <button class="modal-close" onclick="hideEditHarvestModal()">&times;</button>
+        </div>
+        
+        <div class="modal-body">
+            <form id="editHarvestForm" method="post" class="form-grid">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="edit">
+                <input type="hidden" name="harvest_id" value="" id="edit-harvest-id">
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Field</label>
+                        <select name="field" required class="form-select" id="edit-field">
+                            <option value="" disabled>Select field</option>
+                            {% for field in available_fields %}
+                                <option value="{{ field.id }}">
+                                    {{ field.farm.name }} - {{ field.name }} 
+                                    {% if field.crop %}({{ field.crop.name }}){% endif %}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Harvested By</label>
+                        <select name="harvested_by" required class="form-select" id="edit-harvested-by">
+                            <option value="" disabled>Select person</option>
+                            {% for user in available_users %}
+                                <option value="{{ user.id }}">
+                                    {{ user.first_name }} {{ user.last_name }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Harvest Date</label>
+                        <input type="date" name="harvest_date" required class="form-input" id="edit-harvest-date">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Quantity (tons)</label>
+                        <input type="number" name="quantity" placeholder="12.5" min="0" step="0.1" required class="form-input" id="edit-quantity">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Quality Grade</label>
+                        <select name="quality_grade" required class="form-select" id="edit-quality-grade">
+                            <option value="" disabled>Select quality grade</option>
+                            <option value="A">Grade A - Premium</option>
+                            <option value="B">Grade B - Good</option>
+                            <option value="C">Grade C - Average</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Weather Conditions</label>
+                        <input type="text" name="weather" placeholder="e.g., Sunny, Clear" class="form-input" id="edit-weather">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Notes</label>
+                    <textarea name="notes" rows="3" placeholder="Additional harvest notes..." class="form-textarea" id="edit-notes"></textarea>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" onclick="hideEditHarvestModal()" class="btn btn-secondary">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Update Harvest</button>
                 </div>
             </form>
         </div>
@@ -883,7 +1062,7 @@
 <!-- Toastr JS for notifications -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
 <script>
-    // Green notification on page load (matching inventory's showToast)
+    // Initialize toastr and page load animations
     document.addEventListener('DOMContentLoaded', function() {
         toastr.options = {
             closeButton: true,
@@ -896,16 +1075,16 @@
             showMethod: 'fadeIn',
             hideMethod: 'fadeOut'
         };
-        toastr.success('Harvest Tracking loaded successfully!', 'success');  // Green toast
+        toastr.success('Harvest Tracking loaded successfully!', 'Success');
 
-        // Set today's date as default (2025-09-13 based on current date)
-        const today = '2025-09-13';  // Hardcoded for consistency; use new Date() in prod
+        // Set today's date as default
+        const today = new Date().toISOString().split('T')[0];
         const harvestDateInput = document.querySelector('input[name="harvest_date"]');
         if (harvestDateInput) {
             harvestDateInput.value = today;
         }
 
-        // Add subtle animations to cards on load (kept)
+        // Add subtle animations to cards on load
         const cards = document.querySelectorAll('.metric-card, .harvest-card, .section');
         cards.forEach((card, index) => {
             card.style.opacity = '0';
@@ -918,7 +1097,7 @@
             }, index * 100);
         });
 
-        // Auto-dismiss Django messages after 5s (kept)
+        // Auto-dismiss Django messages after 5s
         const alerts = document.querySelectorAll('.alert');
         alerts.forEach(alert => {
             setTimeout(() => {
@@ -931,14 +1110,27 @@
         });
     });
 
-    // Rest of JS unchanged (Modal Functions, Action Functions, Form Submission, etc.)
+    // === VIEW HARVEST MODAL FUNCTIONS ===
+    function showViewHarvestModal() {
+        const modal = document.getElementById('viewHarvestModal');
+        modal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }
+
+    function hideViewHarvestModal() {
+        const modal = document.getElementById('viewHarvestModal');
+        modal.style.display = 'none';
+        document.body.style.overflow = 'auto';
+    }
+
+    // === RECORD NEW HARVEST MODAL FUNCTIONS ===
     function showRecordHarvestModal() {
         const modal = document.getElementById('recordHarvestModal');
         modal.style.display = 'flex';
         document.body.style.overflow = 'hidden';
         
-        // Reset form for new record
-        resetForm();
+        // Reset form
+        resetRecordForm();
     }
 
     function hideRecordHarvestModal() {
@@ -947,82 +1139,99 @@
         document.body.style.overflow = 'auto';
         
         // Reset form
-        resetForm();
+        resetRecordForm();
     }
 
-    function resetForm() {
+    function resetRecordForm() {
         const form = document.getElementById('recordHarvestForm');
         form.reset();
         
-        // Reset hidden fields
-        document.getElementById('form-action').value = 'create';
-        document.getElementById('form-harvest-id').value = '';
-        
-        // Reset modal title
-        document.getElementById('modal-title').textContent = 'Record New Harvest';
-        document.getElementById('modal-subtitle').textContent = 'Log harvest details including quantity, quality, and conditions';
-        document.getElementById('submit-btn').textContent = 'Record Harvest';
-        
         // Reset to today's date
         const today = new Date().toISOString().split('T')[0];
-        document.querySelector('input[name="harvest_date"]').value = today;
+        document.querySelector('#recordHarvestForm input[name="harvest_date"]').value = today;
     }
 
-    // Action Functions (viewHarvest, editHarvest, deleteHarvest - unchanged)
+    // === EDIT HARVEST MODAL FUNCTIONS ===
+    function showEditHarvestModal() {
+        const modal = document.getElementById('editHarvestModal');
+        modal.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+    }
+
+    function hideEditHarvestModal() {
+        const modal = document.getElementById('editHarvestModal');
+        modal.style.display = 'none';
+        document.body.style.overflow = 'auto';
+        
+        // Reset form
+        resetEditForm();
+    }
+
+    function resetEditForm() {
+        const form = document.getElementById('editHarvestForm');
+        form.reset();
+        document.getElementById('edit-harvest-id').value = '';
+    }
+
+    // === ACTION FUNCTIONS ===
     function viewHarvest(harvestId) {
-        // Fetch harvest details via AJAX and show in modal or redirect
+        // Fetch harvest details and show in view modal
         fetch(`/harvest-details/${harvestId}/`)
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    // Show details in a view-only modal or alert
                     const harvest = data.data;
-                    alert(`Harvest Details:\n\nField: ${harvest.field_name}\nDate: ${harvest.harvest_date}\nQuantity: ${harvest.quantity_tons} tons\nQuality: Grade ${harvest.quality_grade}\nWeather: ${harvest.weather_conditions}\nNotes: ${harvest.notes}`);
+                    
+                    // Populate view modal
+                    document.getElementById('view-field-name').textContent = harvest.field_name;
+                    document.getElementById('view-harvest-date').textContent = new Date(harvest.harvest_date).toLocaleDateString();
+                    document.getElementById('view-quantity').textContent = harvest.quantity_tons + ' tons';
+                    document.getElementById('view-quality-grade').textContent = 'Grade ' + harvest.quality_grade;
+                    document.getElementById('view-harvested-by').textContent = harvest.harvested_by_name || 'N/A';
+                    document.getElementById('view-weather').textContent = harvest.weather_conditions || 'Not specified';
+                    document.getElementById('view-notes').textContent = harvest.notes || 'No notes';
+                    
+                    // Show view modal
+                    showViewHarvestModal();
                 } else {
-                    alert('Error loading harvest details: ' + data.error);
+                    toastr.error('Error loading harvest details: ' + data.error);
                 }
             })
             .catch(error => {
                 console.error('Error:', error);
-                alert('Error loading harvest details');
+                toastr.error('Error loading harvest details');
             });
     }
 
     function editHarvest(harvestId) {
-        // Fetch harvest details and populate form
+        // Fetch harvest details and populate edit form
         fetch(`/harvest-details/${harvestId}/`)
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
                     const harvest = data.data;
                     
-                    // Set form to edit mode
-                    document.getElementById('form-action').value = 'edit';
-                    document.getElementById('form-harvest-id').value = harvestId;
+                    // Set harvest ID
+                    document.getElementById('edit-harvest-id').value = harvestId;
                     
-                    // Update modal title
-                    document.getElementById('modal-title').textContent = 'Edit Harvest Record';
-                    document.getElementById('modal-subtitle').textContent = 'Update harvest details';
-                    document.getElementById('submit-btn').textContent = 'Update Harvest';
+                    // Populate edit form fields
+                    document.getElementById('edit-field').value = harvest.field_id;
+                    document.getElementById('edit-harvest-date').value = harvest.harvest_date;
+                    document.getElementById('edit-quantity').value = harvest.quantity_tons;
+                    document.getElementById('edit-quality-grade').value = harvest.quality_grade;
+                    document.getElementById('edit-harvested-by').value = harvest.harvested_by_id;
+                    document.getElementById('edit-weather').value = harvest.weather_conditions;
+                    document.getElementById('edit-notes').value = harvest.notes;
                     
-                    // Populate form fields
-                    document.querySelector('select[name="field"]').value = harvest.field_id;
-                    document.querySelector('input[name="harvest_date"]').value = harvest.harvest_date;
-                    document.querySelector('input[name="quantity"]').value = harvest.quantity_tons;
-                    document.querySelector('select[name="quality_grade"]').value = harvest.quality_grade;
-                    document.querySelector('select[name="harvested_by"]').value = harvest.harvested_by_id;
-                    document.querySelector('input[name="weather"]').value = harvest.weather_conditions;
-                    document.querySelector('textarea[name="notes"]').value = harvest.notes;
-                    
-                    // Show modal
-                    showRecordHarvestModal();
+                    // Show edit modal
+                    showEditHarvestModal();
                 } else {
-                    alert('Error loading harvest details: ' + data.error);
+                    toastr.error('Error loading harvest details: ' + data.error);
                 }
             })
             .catch(error => {
                 console.error('Error:', error);
-                alert('Error loading harvest details');
+                toastr.error('Error loading harvest details');
             });
     }
 
@@ -1041,38 +1250,67 @@
         }
     }
 
-    // Form Submission Enhancement
+    // === FORM SUBMISSION ENHANCEMENTS ===
     document.getElementById('recordHarvestForm').addEventListener('submit', function(e) {
-        const submitBtn = document.getElementById('submit-btn');
+        const submitBtn = this.querySelector('button[type="submit"]');
         const originalText = submitBtn.textContent;
         
         // Show loading state
         submitBtn.disabled = true;
-        submitBtn.textContent = 'Processing...';
+        submitBtn.textContent = 'Recording...';
         
-        // Form will submit normally to Django view
-        // Re-enable button after a delay in case of validation errors
+        // Re-enable button after delay in case of validation errors
         setTimeout(() => {
             submitBtn.disabled = false;
             submitBtn.textContent = originalText;
         }, 3000);
     });
 
-    // Close modal when clicking outside
+    document.getElementById('editHarvestForm').addEventListener('submit', function(e) {
+        const submitBtn = this.querySelector('button[type="submit"]');
+        const originalText = submitBtn.textContent;
+        
+        // Show loading state
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Updating...';
+        
+        // Re-enable button after delay in case of validation errors
+        setTimeout(() => {
+            submitBtn.disabled = false;
+            submitBtn.textContent = originalText;
+        }, 3000);
+    });
+
+    // === MODAL EVENT LISTENERS ===
+    // Close modals when clicking outside
+    document.getElementById('viewHarvestModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            hideViewHarvestModal();
+        }
+    });
+
     document.getElementById('recordHarvestModal').addEventListener('click', function(e) {
         if (e.target === this) {
             hideRecordHarvestModal();
         }
     });
 
-    // Keyboard navigation
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') {
-            hideRecordHarvestModal();
+    document.getElementById('editHarvestModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            hideEditHarvestModal();
         }
     });
 
-    // Filter functionality with client-side filtering for better UX (unchanged)
+    // Keyboard navigation
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            hideViewHarvestModal();
+            hideRecordHarvestModal();
+            hideEditHarvestModal();
+        }
+    });
+
+    // === FILTER FUNCTIONALITY ===
     function filterHarvestsClient() {
         const filter = document.getElementById('harvestFilter').value;
         const today = new Date().toISOString().split('T')[0];
@@ -1153,8 +1391,5 @@
             recordCountElement.textContent = visibleCount;
         }
     }
-
-    // Add client-side filter if you want instant filtering
-    // Otherwise, keep the server-side form submission
 </script>
 {% endblock %}
