@@ -19,7 +19,7 @@
 
         .hero-section {
             min-height: 100vh;
-            background: linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.4)), url("{% static 'monitoring/images/landing page.jpg' %}");
+            background: url("{% static 'monitoring/images/landing page.jpg' %}");
             background-size: cover;
             background-position: center;
             background-attachment: fixed;
@@ -27,6 +27,27 @@
             display: flex;
             flex-direction: column;
             position: relative;
+            overflow: hidden; /* Ensure overlay stays within bounds */
+        }
+
+        /* Floating Gradient Overlay */
+        .hero-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(45deg, rgba(0, 0, 0, 0.4), rgba(74, 222, 128, 0.2), rgba(0, 0, 0, 0.3));
+            animation: floatGradient 8s ease-in-out infinite;
+            z-index: 1; /* Above background, below content */
+            pointer-events: none; /* Allow clicks to pass through */
+        }
+
+        @keyframes floatGradient {
+            0% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-20px) scale(1.02); }
+            100% { transform: translateY(0) scale(1); }
         }
 
         /* Header */
@@ -102,6 +123,8 @@
             max-width: 900px;
             margin: 0 auto;
             animation: fadeInUp 1s ease-out;
+            position: relative;
+            z-index: 2; /* Above the gradient overlay */
         }
 
         @keyframes fadeInUp {
@@ -189,7 +212,7 @@
         }
 
         /* Decorative Elements */
-        .hero-section::before {
+        .hero-section::after {
             content: '';
             position: absolute;
             top: 0;
@@ -199,6 +222,7 @@
             background: radial-gradient(circle at 30% 20%, rgba(74, 222, 128, 0.1) 0%, transparent 50%),
                         radial-gradient(circle at 70% 80%, rgba(34, 197, 94, 0.1) 0%, transparent 50%);
             pointer-events: none;
+            z-index: 1; /* Below content, above background */
         }
 
         /* Responsive Design */
@@ -302,6 +326,11 @@
             .get-started-btn:hover:before {
                 left: -100%;
             }
+
+            .hero-section::before {
+                animation: none;
+                transform: none;
+            }
         }
 
         /* Focus styles for accessibility */
@@ -335,6 +364,7 @@
                 <div class="logo-icon">🌱</div>
                 <span>HarvestPro</span>
             </div>
+            <a href="/login/" class="sign-in-btn">Sign In</a>
         </header>
 
         <main class="hero-content">
@@ -343,7 +373,7 @@
             <p class="hero-description">
                 Track, manage, and analyze your crop harvests with ease. Our platform helps farmers and agro-experts monitor harvest cycles, view real-time updates, and make informed decisions to boost productivity and sustainability.
             </p>
-            <button class="get-started-btn">Get started</button>
+            <a href="/login/" class="get-started-btn">Get started</a>
         </main>
     </div>
 
@@ -370,8 +400,8 @@
             
             // Add click analytics (optional)
             const getStartedBtn = document.querySelector('.get-started-btn');
-            getStartedBtn.addEventListener('click', function() {
-                // Redirect to login page
+            getStartedBtn.addEventListener('click', function(e) {
+                e.preventDefault();
                 window.location.href = '/login/';
             });
         });
