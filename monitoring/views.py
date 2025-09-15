@@ -392,7 +392,6 @@ def user_management(request):
     return render(request, 'monitoring/user_management.html', context)
 
 @login_required
-@role_required(['admin'])
 def user_edit_ajax(request, user_id):
     """Get user data for modal editing - Admin only"""
     user = get_object_or_404(User, id=user_id)
