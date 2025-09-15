@@ -486,7 +486,6 @@ def user_edit_ajax(request, user_id):
     return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 @login_required
-@role_required(['admin'])
 def user_edit(request, user_id):
     """Redirect to user management with edit parameter - for backwards compatibility"""
     return redirect(f"{reverse('monitoring:user_management')}?edit_user={user_id}")
