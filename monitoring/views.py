@@ -313,14 +313,16 @@ from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import JsonResponse
 from django.contrib.auth.models import User
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_http_methods
 from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+from django.contrib.auth.hashers import make_password
 import json
 
 # Import your models
 from .models import UserProfile
+from .forms import AdminUserCreationForm, UserProfileUpdateForm
 
 # You need to define or import this decorator
 def role_required(roles):
@@ -393,10 +395,12 @@ def user_management(request):
 
 @login_required
 @role_required(['admin'])
+@require_http_methods(["GET", "POST"])
 def user_edit_ajax(request, user_id):
-    """Get user data for modal editing - Admin only"""
+    """Get user data for modal editing or handle form submission - Admin only"""
     user = get_object_or_404(User, id=user_id)
     
+    # Security check
     if user.is_superuser and not request.user.is_superuser:
         return JsonResponse({'error': 'You cannot edit superuser accounts.'}, status=403)
     
@@ -410,20 +414,34 @@ def user_edit_ajax(request, user_id):
         user_data = {
             'id': user.id,
             'username': user.username,
-            'first_name': user.first_name,
-            'last_name': user.last_name,
-            'email': user.email,
+            'first_name': user.first_name or '',
+            'last_name': user.last_name or '',
+            'email': user.email or '',
             'role': profile.role,
             'is_active': profile.is_active,
             'phone_number': getattr(profile, 'phone_number', ''),
         }
-        return JsonResponse({'user': user_data})
+        return JsonResponse({
+            'success': True,
+            'user': user_data
+        })
     
     elif request.method == 'POST':
         # Handle form submission via AJAX
         try:
             # Parse JSON data
-            data = json.loads(request.body)
+            if request.content_type == 'application/json':
+                data = json.loads(request.body)
+            else:
+                # Handle form data
+                data = {
+                    'first_name': request.POST.get('first_name', ''),
+                    'last_name': request.POST.get('last_name', ''),
+                    'email': request.POST.get('email', ''),
+                    'role': request.POST.get('role', ''),
+                    'is_active': request.POST.get('is_active') in ['true', 'True', '1', 'on'],
+                    'phone_number': request.POST.get('phone_number', ''),
+                }
             
             # Validate required fields
             required_fields = ['first_name', 'last_name', 'email', 'role']
@@ -470,7 +488,7 @@ def user_edit_ajax(request, user_id):
             
             return JsonResponse({
                 'success': True, 
-                'message': f'User {user.username} updated successfully.'
+                'message': f'User {user.get_full_name() or user.username} updated successfully.'
             })
             
         except json.JSONDecodeError:
@@ -485,6 +503,7 @@ def user_edit_ajax(request, user_id):
             }, status=500)
     
     return JsonResponse({'error': 'Invalid request method'}, status=405)
+
 
 @login_required
 @role_required(['admin'])
@@ -506,7 +525,7 @@ def user_deactivate(request, user_id):
     try:
         user.userprofile.is_active = False
         user.userprofile.save()
-        messages.success(request, f'User {user.username} has been deactivated.')
+        messages.success(request, f'User {user.get_full_name() or user.username} has been deactivated.')
     except Exception as e:
         messages.error(request, f'Error deactivating user: {str(e)}')
     
@@ -522,7 +541,7 @@ def user_activate(request, user_id):
     try:
         user.userprofile.is_active = True
         user.userprofile.save()
-        messages.success(request, f'User {user.username} has been activated.')
+        messages.success(request, f'User {user.get_full_name() or user.username} has been activated.')
     except Exception as e:
         messages.error(request, f'Error activating user: {str(e)}')
     
@@ -544,13 +563,14 @@ def user_delete(request, user_id):
         return redirect('monitoring:user_management')
     
     try:
-        username = user.username
+        username = user.get_full_name() or user.username
         user.delete()
         messages.success(request, f'User {username} has been deleted successfully.')
     except Exception as e:
         messages.error(request, f'Error deleting user: {str(e)}')
     
     return redirect('monitoring:user_management')
+
 @login_required
 @role_required(['admin'])
 def user_reset_password(request, user_id):
@@ -563,25 +583,20 @@ def user_reset_password(request, user_id):
         
         if not new_password or len(new_password) < 8:
             messages.error(request, 'Password must be at least 8 characters long.')
-        elif new_password != confirm_password:
+            return redirect('monitoring:user_management')
+        
+        if new_password != confirm_password:
             messages.error(request, 'Passwords do not match.')
-        else:
-            try:
-                user.set_password(new_password)
-                user.save()
-                messages.success(
-                    request, 
-                    f'Password for user {user.username} has been reset successfully.'
-                )
-                return redirect('monitoring:user_management')
-            except Exception as e:
-                messages.error(request, f'Error resetting password: {str(e)}')
+            return redirect('monitoring:user_management')
+        
+        try:
+            user.set_password(new_password)
+            user.save()
+            messages.success(request, f'Password reset successfully for {user.get_full_name() or user.username}.')
+        except Exception as e:
+            messages.error(request, f'Error resetting password: {str(e)}')
     
-    context = {
-        'user': user,
-        'title': f'Reset Password for: {user.username}',
-    }
-    return render(request, 'monitoring/user_reset_password.html', context)
+    return redirect('monitoring:user_management')
 
 @login_required
 @admin_added_required
